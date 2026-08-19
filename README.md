@@ -80,6 +80,47 @@ This prints a demo login (`demo@artstudio.example` / `demo12345`). Log in
 with those credentials, or register your own account and connect a mock
 Instagram account from the dashboard.
 
+## Deploying to a single VM
+
+A VM is the easier target for a real Instagram connection than local
+development, because its address is stable — the OAuth redirect URI is
+registered once and never changes.
+
+```bash
+git clone -b claude/instagram-optimization-mvp-j7z4ja \
+  https://github.com/ad-nauseam-tendrills/Test.git
+cd Test
+./deploy/setup.sh
+```
+
+`setup.sh` detects the machine's public IP, derives an HTTPS-capable
+hostname from it, generates a random `SECRET_KEY` and database password,
+writes both env files with mode `600`, and prints the exact redirect URI
+to register with Meta. It never overwrites an existing `backend/.env`, so
+it is safe to re-run.
+
+Then add `META_APP_ID` / `META_APP_SECRET` to `backend/.env` and:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+**No domain required.** The default hostname uses
+[sslip.io](https://sslip.io), which resolves `1-2-3-4.sslip.io` to
+`1.2.3.4` and works with Let's Encrypt, so Caddy provisions a real
+certificate without a domain purchase. If you own a domain, point an A
+record at the machine and run `SITE_ADDRESS=your.domain.com ./deploy/setup.sh`.
+
+**Networking.** Caddy terminates TLS and serves the API and frontend from
+one origin (`/api/*` to the backend, everything else to the frontend), so
+there is no CORS configuration and only one hostname to register. Every
+other service binds to `127.0.0.1` only — reachable over SSH for
+debugging, not from the internet. Note that Docker writes iptables rules
+that bypass `ufw`, so a publicly-bound port stays reachable even with the
+firewall enabled; the production overlay uses `!override` on each `ports`
+list because compose otherwise *merges* them and would silently retain
+the base file's public bindings.
+
 ## Local development (without Docker)
 
 **Backend**

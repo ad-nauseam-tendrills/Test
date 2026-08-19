@@ -1,0 +1,35 @@
+# Caddy fronts both services on one origin and provisions TLS
+# automatically from Let's Encrypt.
+#
+# Serving the API and the frontend from the SAME origin means the browser
+# makes same-origin requests, so no CORS configuration is involved and
+# there is no second hostname to register anywhere.
+
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# Backend: everything under /api, plus the health check and API docs.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /health {
+		reverse_proxy backend:8000
+	}
+	handle /docs* {
+		reverse_proxy backend:8000
+	}
+	handle /openapi.json {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else: the Next.js frontend.
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	# Uploaded artwork can be large; allow generous request bodies
+	# (the backend enforces its own MAX_UPLOAD_SIZE_MB limit).
+	request_body {
+		max_size 30MB
+	}
+}

@@ -1,0 +1,59 @@
+# Production overlay for a single VM (e.g. a DigitalOcean droplet).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Differences from the base (local development) compose file:
+#   * Caddy terminates TLS and serves both services from one origin.
+#   * No service publishes a port on the public interface. Ports are bound
+#     to 127.0.0.1 so they remain reachable for debugging over SSH but are
+#     not exposed to the internet. (This matters: Docker writes its own
+#     iptables rules that bypass ufw, so a plain "5432:5432" would expose
+#     Postgres publicly even with the firewall enabled.)
+#   * The frontend is built against the public HTTPS URL.
+#
+# Required in the shell or a root .env file:
+#   SITE_ADDRESS  the public hostname, e.g. 164-90-1-2.sslip.io
+#   PUBLIC_URL    https://$SITE_ADDRESS
+
+services:
+  db:
+    # `!override` is required: compose MERGES port lists by default, so a
+    # plain list here would keep the base file's public 0.0.0.0 binding
+    # alongside this one and leave Postgres exposed to the internet.
+    ports: !override
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run ./deploy/setup.sh}
+
+  backend:
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:?}@db:5432/instaopt
+
+  frontend:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL}/api/v1
+    ports: !override
+      - "127.0.0.1:3000:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
