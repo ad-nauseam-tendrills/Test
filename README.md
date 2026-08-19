@@ -53,12 +53,16 @@ docker-compose.yml
 ## Quick start (Docker Compose)
 
 ```bash
-cp .env.example .env
-cp backend/.env.example backend/.env
+cp backend/.env.example backend/.env   # required -- compose reads this
 cp frontend/.env.example frontend/.env.local   # optional, only for `npm run dev` outside Docker
 
 docker compose up --build
 ```
+
+All backend configuration, including Meta credentials, lives in
+**`backend/.env`** — that is the only file you need to edit. Compose
+overrides just the container-specific values (database host, storage
+paths), so the same file works for Docker and for local development.
 
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000 (docs at http://localhost:8000/docs)
