@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env files
+.env
+.env.local
+backend/.env
+frontend/.env.local
+
+# Node
+node_modules/
+.next/
+frontend/.next/
+npm-debug.log*
+
+# Storage / uploads
+storage/uploads/*
+storage/variants/*
+!storage/uploads/.gitkeep
+!storage/variants/.gitkeep
+backend/storage/uploads/*
+backend/storage/variants/*
+!backend/storage/uploads/.gitkeep
+!backend/storage/variants/.gitkeep
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+frontend/tsconfig.tsbuildinfo
