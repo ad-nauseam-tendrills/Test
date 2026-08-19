@@ -59,7 +59,7 @@ class MockInstagramProvider(InstagramProvider):
         ).hexdigest()[:12]
         return self.get_account(ig_user_id)
 
-    def get_account(self, ig_user_id: str) -> ProviderAccount:
+    def get_account(self, ig_user_id: str, access_token: str | None = None) -> ProviderAccount:
         rng = self._rng(ig_user_id)
         return ProviderAccount(
             ig_user_id=ig_user_id,
@@ -71,7 +71,9 @@ class MockInstagramProvider(InstagramProvider):
             token_expires_at=datetime.now(timezone.utc) + timedelta(days=60),
         )
 
-    def get_media(self, ig_user_id: str, limit: int = 50) -> list[ProviderMedia]:
+    def get_media(
+        self, ig_user_id: str, limit: int = 50, access_token: str | None = None
+    ) -> list[ProviderMedia]:
         rng = self._rng(ig_user_id)
         base_followers = rng.randint(1800, 42000)
         # Simulate gradual follower growth over the history window.
@@ -138,12 +140,14 @@ class MockInstagramProvider(InstagramProvider):
             profile_visits=profile_visits,
         )
 
-    def get_media_insights(self, ig_media_id: str) -> ProviderMediaInsights:
+    def get_media_insights(
+        self, ig_media_id: str, access_token: str | None = None
+    ) -> ProviderMediaInsights:
         rng = self._rng(ig_media_id)
         followers = rng.randint(1800, 42000)
         return self._generate_insights(rng, followers, rng.choice(MEDIA_TYPES), datetime.now(timezone.utc))
 
-    def get_account_insights(self, ig_user_id: str) -> dict:
+    def get_account_insights(self, ig_user_id: str, access_token: str | None = None) -> dict:
         account = self.get_account(ig_user_id)
         return {
             "follower_count": account.follower_count,

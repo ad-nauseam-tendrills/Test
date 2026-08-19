@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { Card, CardLabel } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -11,9 +12,21 @@ import { formatDateTime, formatNumber } from "@/lib/utils";
 
 function SettingsContent() {
   const { user, refreshUser } = useAuth();
+  const searchParams = useSearchParams();
   const [accounts, setAccounts] = useState<InstagramAccount[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The Meta OAuth callback bounces the browser back here with a status.
+  useEffect(() => {
+    const status = searchParams.get("instagram");
+    const detail = searchParams.get("message");
+    if (status === "connected") {
+      setMessage(detail || "Instagram account connected.");
+    } else if (status === "error") {
+      setMessage(detail || "Could not connect that Instagram account.");
+    }
+  }, [searchParams]);
 
   async function loadAccounts() {
     try {
@@ -49,10 +62,30 @@ function SettingsContent() {
     try {
       await api.post<InstagramAccount>("/accounts/connect", { provider: "mock" });
       await loadAccounts();
-      setMessage("Instagram account connected.");
+      setMessage("Mock Instagram account connected.");
     } catch (err) {
       setMessage(err instanceof ApiError ? err.message : "Failed to connect account.");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function connectRealAccount() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { authorize_url } = await api.get<{ authorize_url: string }>(
+        "/accounts/meta/authorize-url"
+      );
+      // Full-page navigation: Instagram's consent screen refuses to render
+      // in an iframe, and the OAuth redirect must land on the backend.
+      window.location.href = authorize_url;
+    } catch (err) {
+      setMessage(
+        err instanceof ApiError
+          ? err.message
+          : "Could not start the Instagram connection flow."
+      );
       setBusy(false);
     }
   }
@@ -125,11 +158,16 @@ function SettingsContent() {
         <CardLabel>Instagram connection</CardLabel>
         <div className="mt-4 flex flex-col gap-4">
           {accounts.length === 0 && (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-stone-500">No account connected.</p>
-              <Button onClick={connectAccount} disabled={busy}>
-                Connect (mock)
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={connectRealAccount} disabled={busy}>
+                  Connect Instagram
+                </Button>
+                <Button variant="secondary" onClick={connectAccount} disabled={busy}>
+                  Use demo data
+                </Button>
+              </div>
             </div>
           )}
           {accounts.map((account) => (
@@ -162,13 +200,18 @@ function SettingsContent() {
       </Card>
 
       <Card>
-        <CardLabel>About the mock integration</CardLabel>
+        <CardLabel>About the two connection options</CardLabel>
         <p className="mt-2 text-sm text-stone-500">
-          This development build uses a mock Instagram provider that generates realistic, synthetic
-          historical post data locally — no real Meta credentials are required and Instagram is never
-          scraped. A real Meta Graph API integration can be enabled later by an administrator by
-          setting <code className="rounded bg-stone-100 px-1 py-0.5 text-xs">INSTAGRAM_PROVIDER=meta</code> and
-          configuring Meta app credentials on the backend.
+          <strong className="font-medium text-stone-700">Connect Instagram</strong> uses the official
+          Meta Graph API to import your real posts and insights. It requires an Instagram
+          professional (Creator or Business) account, and the backend must be configured with Meta
+          app credentials. Instagram is never scraped — only documented API endpoints are used.
+        </p>
+        <p className="mt-2 text-sm text-stone-500">
+          <strong className="font-medium text-stone-700">Use demo data</strong> connects a mock
+          provider that generates realistic synthetic post history locally. Nothing leaves your
+          machine and no credentials are needed — useful for exploring the app before wiring up a
+          real account.
         </p>
       </Card>
     </div>
@@ -178,7 +221,11 @@ function SettingsContent() {
 export default function SettingsPage() {
   return (
     <RequireAuth>
-      <SettingsContent />
+      {/* SettingsContent reads the OAuth callback's query params via
+          useSearchParams, which must sit inside a Suspense boundary. */}
+      <Suspense fallback={<div className="py-24 text-center text-sm text-stone-400">Loading…</div>}>
+        <SettingsContent />
+      </Suspense>
     </RequireAuth>
   );
 }

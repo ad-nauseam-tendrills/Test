@@ -40,6 +40,7 @@ class PostMetricRead(BaseModel):
     shares: int | None
     reach: int | None
     impressions: int | None
+    views: int | None
     profile_visits: int | None
 
 

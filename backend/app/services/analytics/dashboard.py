@@ -45,6 +45,7 @@ def annotate_post(post: InstagramPost, all_rates: list[float]) -> dict:
                 shares=m.shares,
                 reach=m.reach,
                 impressions=m.impressions,
+                views=m.views,
             )
         )
     return {

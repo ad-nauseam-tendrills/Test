@@ -140,22 +140,64 @@ API (auth, account connect/import, dashboard, upload → analyze → optimize).
 
 `app/services/instagram/base.py` defines the `InstagramProvider` interface
 (`authenticate`, `get_account`, `get_media`, `get_media_insights`,
-`get_account_insights`). Two implementations exist:
+`get_account_insights`). Two implementations exist, and both are usable:
 
-- **`MockInstagramProvider`** — the default. Generates deterministic,
-  realistic historical post data locally (60 posts per account, varied
-  media types, engagement patterns that vary by day/hour so the analytics
-  layer has real patterns to find). No network calls.
-- **`MetaInstagramProvider`** — a structural placeholder for the real Meta
-  Graph API. It matches the shape of the real integration (OAuth token
-  exchange, `/me/media`, insights edges) but every method raises a clear
-  `NotImplementedError`/`MetaCredentialsMissingError` rather than silently
-  failing. See the module docstring for exactly which Graph API calls to
-  implement and where credentials go (`META_APP_ID`, `META_APP_SECRET`,
-  `META_REDIRECT_URI` environment variables — never committed to source
-  control).
+- **`MockInstagramProvider`** — generates deterministic, realistic
+  historical post data locally (60 posts per account, varied media types,
+  engagement patterns that vary by day/hour so the analytics layer has
+  real patterns to find). No network calls, no credentials. This is what
+  the **"Use demo data"** button connects.
+- **`MetaInstagramProvider`** — the real Instagram Graph API integration,
+  using the **Instagram API with Instagram Login** flow. This is what the
+  **"Connect Instagram"** button uses. Instagram is never scraped; only
+  documented API endpoints are called.
 
-Switch providers via `INSTAGRAM_PROVIDER=mock|meta` in `backend/.env`.
+### Connecting a real Instagram account
+
+**Prerequisites**
+
+1. An **Instagram professional account** (Creator or Business). To check:
+   Instagram app → profile → ☰ → *Settings and privacy* → look for the
+   *For professionals* section. If **Insights** appears on your profile,
+   you're professional.
+2. A **Meta app**: developers.facebook.com → *My Apps* → *Create App* →
+   **Other** → **Business**. Then *Add products* → **Instagram** → **API
+   setup with Instagram login**.
+3. Copy the **Instagram App ID** and **Instagram App Secret** from that
+   section into `META_APP_ID` / `META_APP_SECRET`. These are **not** the
+   Facebook App ID/Secret on the main settings page — using those produces
+   a confusing "Invalid platform app" error, so check this first if
+   authentication fails.
+4. Add your Instagram account under the token-generation step, and
+   register your redirect URI under Instagram business login settings.
+
+**Redirect URI.** Must be HTTPS; Instagram rejects `http://localhost`. For
+local development, tunnel the backend and register that URL:
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+# then set, in backend/.env:
+# META_REDIRECT_URI=https://<your-tunnel>.trycloudflare.com/api/v1/accounts/meta/callback
+```
+
+The same value must be registered in the Meta app settings.
+
+**App Review is not required to test with your own account.** While the
+Meta app is in development mode, the Instagram accounts you add to it get
+full permissions immediately. App Review and Business Verification only
+become necessary to serve accounts you don't control.
+
+**OAuth flow.** `GET /accounts/meta/authorize-url` returns the consent URL
+(carrying a short-lived signed `state` token identifying the user);
+Instagram redirects back to `GET /accounts/meta/callback`, which exchanges
+the code for a long-lived (~60 day) token, stores the account, and bounces
+the browser to `/settings`. Long-lived tokens can be extended before
+expiry via `MetaInstagramProvider.refresh_long_lived_token()`; once
+expired, the user must reconnect.
+
+`INSTAGRAM_PROVIDER` sets the default provider for `POST /accounts/connect`,
+but the two buttons in the UI select their provider explicitly, so the
+mock path stays available for demos regardless of that setting.
 
 ## Artwork Integrity mode
 
@@ -216,8 +258,23 @@ publishing), `PostOutcome` (future predicted-vs-actual tracking),
 
 ## Known limitations (v0.1)
 
-- The Meta Graph API integration is a structural placeholder only —
-  real Instagram publishing and OAuth are not implemented.
+- **Instagram publishing is not implemented.** The Meta integration reads
+  posts and insights only; nothing is ever published to Instagram.
+- **No historical follower counts.** Meta's API exposes only the *current*
+  follower count, so real imported posts are all stamped with today's
+  figure. Follower-normalized comparisons across a long history are
+  therefore approximate for back-dated posts. (The mock provider does
+  simulate follower growth, so demo data doesn't show this.)
+- **Insights coverage varies.** Posts published before the account became
+  professional, or older than Meta's insights window, import with metrics
+  missing; those posts are kept but contribute nothing to engagement
+  stats.
+- **Meta token refresh is manual.** `refresh_long_lived_token()` exists
+  but nothing calls it on a schedule yet, so a token left unused for ~60
+  days expires and the account must be reconnected. A background refresh
+  job is the natural fix.
+- The Meta integration is covered by tests with mocked HTTP; it has not
+  been exercised against live Meta credentials.
 - No billing/subscription system.
 - No ML/prediction model — all recommendations and scores are rule-based
   heuristics, by design.
@@ -232,10 +289,11 @@ publishing), `PostOutcome` (future predicted-vs-actual tracking),
 
 ## Recommended next 5 development tasks
 
-1. Implement the real `MetaInstagramProvider` (OAuth flow + Graph API calls)
-   behind the existing abstraction, gated by `INSTAGRAM_PROVIDER=meta`.
-2. Add a background job queue (e.g. Celery/RQ) for image analysis and
-   optimization so large uploads don't block request threads.
+1. Add a scheduled job that refreshes long-lived Meta tokens before they
+   expire, and surfaces "reconnect needed" in the UI when one lapses.
+2. Add a background job queue (e.g. Celery/RQ) for image analysis,
+   optimization, and Instagram imports — a 60-post import currently makes
+   one insights call per post inside the request.
 3. Build the first real prediction model using `PredictionScore` +
    `PostOutcome` (already schema-ready) once enough real outcome data
    exists, and surface it alongside — never in place of — the heuristic

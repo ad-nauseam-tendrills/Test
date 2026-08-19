@@ -174,3 +174,65 @@ def test_artwork_integrity_setting_toggle(client):
     )
     assert update.status_code == 200
     assert update.json()["artwork_integrity_enabled"] is False
+
+
+# --- Meta OAuth endpoints ------------------------------------------------
+
+
+def test_meta_authorize_url_requires_authentication(client):
+    resp = client.get("/api/v1/accounts/meta/authorize-url")
+    assert resp.status_code == 401
+
+
+def test_meta_authorize_url_without_credentials_returns_clear_error(client):
+    headers = _auth_headers(client, "nometa@example.com")
+    resp = client.get("/api/v1/accounts/meta/authorize-url", headers=headers)
+    # No Meta credentials are configured in the test environment, so this
+    # must fail with an explanatory 400 rather than a 500.
+    assert resp.status_code == 400
+    assert "META_APP_ID" in resp.json()["detail"]
+
+
+def test_meta_authorize_url_with_credentials(client, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "META_APP_ID", "ig-app-id")
+    monkeypatch.setattr(settings, "META_APP_SECRET", "ig-secret")
+    monkeypatch.setattr(settings, "META_REDIRECT_URI", "https://example.test/cb")
+
+    headers = _auth_headers(client, "withmeta@example.com")
+    resp = client.get("/api/v1/accounts/meta/authorize-url", headers=headers)
+    assert resp.status_code == 200
+    url = resp.json()["authorize_url"]
+    assert url.startswith("https://www.instagram.com/oauth/authorize?")
+    assert "state=" in url
+
+
+def test_meta_callback_rejects_missing_state(client):
+    resp = client.get(
+        "/api/v1/accounts/meta/callback?code=abc", follow_redirects=False
+    )
+    assert resp.status_code == 307
+    assert "instagram=error" in resp.headers["location"]
+
+
+def test_meta_callback_rejects_forged_state(client):
+    """A state token we did not sign must never bind an account."""
+    resp = client.get(
+        "/api/v1/accounts/meta/callback?code=abc&state=not-a-real-token",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 307
+    assert "instagram=error" in resp.headers["location"]
+    assert "expired" in resp.headers["location"]
+
+
+def test_meta_callback_surfaces_user_denial(client):
+    """User clicking 'Cancel' on Instagram's consent screen."""
+    resp = client.get(
+        "/api/v1/accounts/meta/callback?error=access_denied"
+        "&error_description=User+denied+the+request",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 307
+    assert "instagram=error" in resp.headers["location"]

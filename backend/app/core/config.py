@@ -34,12 +34,20 @@ class Settings(BaseSettings):
     INSTAGRAM_PROVIDER: str = "mock"
 
     # Real Meta credentials (only required when INSTAGRAM_PROVIDER=meta).
+    # These are the **Instagram** App ID/Secret found under the Meta app's
+    # Instagram product ("API setup with Instagram login") -- NOT the
+    # Facebook App ID/Secret on the main app settings page.
     # NEVER commit real values. Populate these via your deployment
     # environment's secret manager or a local, git-ignored .env file.
     META_APP_ID: str | None = None
     META_APP_SECRET: str | None = None
+    # Must be HTTPS -- Instagram rejects plain http://localhost. Use a
+    # tunnel (cloudflared/ngrok) for local development.
     META_REDIRECT_URI: str | None = None
-    META_GRAPH_API_VERSION: str = "v19.0"
+    META_GRAPH_API_VERSION: str = "v23.0"
+
+    # Where to send the browser after an OAuth callback completes.
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # --- File storage ---
     # Defaults are relative to the backend/ working directory for local,

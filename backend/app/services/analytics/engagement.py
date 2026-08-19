@@ -2,10 +2,14 @@
 Engagement calculations.
 
 All rates are expressed as plain ratios (e.g. 0.045 == 4.5%) computed
-against reach when available, falling back to impressions. Reach is
-preferred because it is a better denominator for judging how well a post
-performed with the people who actually saw it, versus followers-count
-which does not account for algorithmic distribution.
+against reach when available, falling back to views and then impressions.
+Reach is preferred because it is a better denominator for judging how
+well a post performed with the people who actually saw it, versus
+followers-count which does not account for algorithmic distribution.
+
+`views` and `impressions` are the same underlying idea across a Meta API
+change (impressions was deprecated for media created after 2024-07-02),
+so a post carries at most one of them and either serves as a fallback.
 """
 from dataclasses import dataclass
 
@@ -18,14 +22,20 @@ class PostEngagementInput:
     shares: int | None
     reach: int | None
     impressions: int | None
+    views: int | None = None
+
+
+def _denominator(post: PostEngagementInput) -> int | None:
+    return post.reach or post.views or post.impressions
 
 
 def engagement_rate(post: PostEngagementInput) -> float | None:
     """
-    (likes + comments + saves + shares) / reach (or impressions as fallback).
-    Returns None when there isn't enough data to compute a meaningful rate.
+    (likes + comments + saves + shares) / reach (or views/impressions as
+    fallback). Returns None when there isn't enough data to compute a
+    meaningful rate.
     """
-    denominator = post.reach or post.impressions
+    denominator = _denominator(post)
     if not denominator:
         return None
 
@@ -34,7 +44,7 @@ def engagement_rate(post: PostEngagementInput) -> float | None:
 
 
 def save_rate(post: PostEngagementInput) -> float | None:
-    denominator = post.reach or post.impressions
+    denominator = _denominator(post)
     if not denominator or post.saves is None:
         return None
     return round(post.saves / denominator, 5)
@@ -42,7 +52,7 @@ def save_rate(post: PostEngagementInput) -> float | None:
 
 def engagement_breakdown(post: PostEngagementInput) -> dict:
     """Per-metric rates, useful for the post detail view."""
-    denominator = post.reach or post.impressions
+    denominator = _denominator(post)
     if not denominator:
         return {}
     return {
