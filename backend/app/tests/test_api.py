@@ -419,3 +419,86 @@ def test_caption_features_with_imported_posts(client):
 
 def test_caption_features_requires_authentication(client):
     assert client.get("/api/v1/analytics/caption-features").status_code == 401
+
+
+# --- Single-user mode ----------------------------------------------------
+
+
+def test_single_user_mode_bypasses_authentication(client, monkeypatch):
+    from app.core.config import settings
+
+    # Establish an owner first, so there is an existing account to adopt.
+    _auth_headers(client, "owner@example.com")
+
+    monkeypatch.setattr(settings, "SINGLE_USER_MODE", True)
+    monkeypatch.setattr(settings, "SINGLE_USER_EMAIL", None)
+
+    # No Authorization header at all.
+    resp = client.get("/api/v1/auth/me")
+    assert resp.status_code == 200
+    assert resp.json()["single_user_mode"] is True
+
+
+def test_single_user_mode_adopts_the_oldest_account(client, monkeypatch):
+    """Switching an existing deployment over must keep its data, not orphan it."""
+    from app.core.config import settings
+
+    _auth_headers(client, "first@example.com")
+    _auth_headers(client, "second@example.com")
+
+    monkeypatch.setattr(settings, "SINGLE_USER_MODE", True)
+    monkeypatch.setattr(settings, "SINGLE_USER_EMAIL", None)
+
+    resp = client.get("/api/v1/auth/me")
+    assert resp.json()["email"] == "first@example.com"
+
+
+def test_single_user_mode_honours_explicit_email(client, monkeypatch):
+    from app.core.config import settings
+
+    _auth_headers(client, "first@example.com")
+    _auth_headers(client, "chosen@example.com")
+
+    monkeypatch.setattr(settings, "SINGLE_USER_MODE", True)
+    monkeypatch.setattr(settings, "SINGLE_USER_EMAIL", "chosen@example.com")
+
+    resp = client.get("/api/v1/auth/me")
+    assert resp.json()["email"] == "chosen@example.com"
+
+
+def test_single_user_mode_creates_an_owner_when_none_exists(client, monkeypatch):
+    """The auto-created placeholder must survive EmailStr validation."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SINGLE_USER_MODE", True)
+    monkeypatch.setattr(settings, "SINGLE_USER_EMAIL", None)
+
+    resp = client.get("/api/v1/auth/me")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["email"] == "owner@example.com"
+
+
+def test_single_user_mode_scopes_data_to_the_owner(client, monkeypatch):
+    """The owner sees their own data, not a blank slate."""
+    from app.core.config import settings
+
+    headers = _auth_headers(client, "dataowner@example.com")
+    connect = client.post("/api/v1/accounts/connect", json={"provider": "mock"}, headers=headers)
+    client.post(f"/api/v1/accounts/{connect.json()['id']}/import", headers=headers)
+
+    monkeypatch.setattr(settings, "SINGLE_USER_MODE", True)
+    monkeypatch.setattr(settings, "SINGLE_USER_EMAIL", None)
+
+    # Unauthenticated request still sees the owner's imported history.
+    resp = client.get("/api/v1/analytics/dashboard")
+    assert resp.status_code == 200
+    assert resp.json()["overview"]["total_posts"] >= 30
+
+
+def test_auth_still_required_when_mode_is_off(client):
+    """The default must be unchanged -- this is opt-in only."""
+    from app.core.config import settings
+
+    assert settings.SINGLE_USER_MODE is False
+    assert client.get("/api/v1/auth/me").status_code == 401
+    assert client.get("/api/v1/analytics/dashboard").status_code == 401

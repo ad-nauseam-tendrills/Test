@@ -49,6 +49,20 @@ class Settings(BaseSettings):
     # Where to send the browser after an OAuth callback completes.
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # --- Single-user mode ---
+    # Removes the login screen by resolving every request to one owner
+    # account. Intended for a personal deployment where signing in each
+    # time is friction rather than protection.
+    #
+    # This is NOT an access control. It makes every visitor the owner, so
+    # a deployment reachable from the internet must be restricted at the
+    # network layer (firewall, HTTP basic auth on the proxy, or a VPN).
+    SINGLE_USER_MODE: bool = False
+    # Which account to run as. Blank means "the oldest account in the
+    # database", which adopts an existing user and their connected
+    # Instagram account rather than creating an empty new one.
+    SINGLE_USER_EMAIL: str | None = None
+
     # --- Caption generation (optional) ---
     # Claude API key, used only by the caption-suggestion feature. When
     # unset, that endpoint returns a clear "not configured" error and the

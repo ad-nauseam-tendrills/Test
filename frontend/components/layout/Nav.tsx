@@ -41,15 +41,19 @@ export function Nav() {
             </Link>
           ))}
         </nav>
-        <button
-          onClick={() => {
-            logout();
-            router.push("/login");
-          }}
-          className="text-sm text-stone-500 hover:text-stone-900"
-        >
-          Sign out
-        </button>
+        {/* Signing out is meaningless when auth is bypassed -- the next
+            request would just resolve the owner account again. */}
+        {!user.single_user_mode && (
+          <button
+            onClick={() => {
+              logout();
+              router.push("/login");
+            }}
+            className="text-sm text-stone-500 hover:text-stone-900"
+          >
+            Sign out
+          </button>
+        )}
       </div>
       <div className="flex items-center gap-6 overflow-x-auto border-t border-stone-100 px-6 py-2 sm:hidden">
         {LINKS.map((link) => (

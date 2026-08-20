@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,9 +9,20 @@ from app.core.config import settings
 from app.core.storage import ensure_storage_dirs
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_storage_dirs()
+    if settings.SINGLE_USER_MODE:
+        # Loud on purpose: this is the difference between "personal tool"
+        # and "anyone who finds the URL is me".
+        logger.warning(
+            "SINGLE_USER_MODE is ON -- authentication is bypassed and every "
+            "request runs as the owner account. Restrict network access to "
+            "this deployment."
+        )
     yield
 
 

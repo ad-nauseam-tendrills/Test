@@ -21,6 +21,9 @@ class UserRead(BaseModel):
     email: EmailStr
     full_name: str | None
     artwork_integrity_enabled: bool
+    # Deployment-level flag, not a user attribute: lets the UI hide the
+    # sign-out control, which would be a no-op when auth is bypassed.
+    single_user_mode: bool = False
 
 
 class TokenResponse(BaseModel):

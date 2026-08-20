@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.user import User
@@ -41,4 +42,6 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserRead)
 def me(current_user: User = Depends(get_current_user)):
-    return UserRead.model_validate(current_user)
+    result = UserRead.model_validate(current_user)
+    result.single_user_mode = settings.SINGLE_USER_MODE
+    return result

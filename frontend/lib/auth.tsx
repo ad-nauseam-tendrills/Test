@@ -20,11 +20,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    // Always attempt /auth/me, even with no stored token. In single-user
+    // mode the backend resolves the owner account and this succeeds,
+    // which is what removes the login screen. In normal mode it 401s and
+    // RequireAuth redirects to /login exactly as before.
     api
       .get<User>("/auth/me")
       .then(setUser)

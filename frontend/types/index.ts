@@ -3,6 +3,7 @@ export interface User {
   email: string;
   full_name: string | null;
   artwork_integrity_enabled: boolean;
+  single_user_mode?: boolean;
 }
 
 export interface TokenResponse {

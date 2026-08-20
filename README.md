@@ -37,7 +37,7 @@ backend/
       image_processing/  # Artwork Integrity optimization engine
       recommendations/   # rule-based recommendations + heuristic scoring
       captions/          # Claude-backed caption suggestions
-    tests/                # pytest suite (160 tests)
+    tests/                # pytest suite (166 tests)
   alembic/                # migrations
   scripts/seed_mock_data.py
 frontend/
@@ -179,7 +179,7 @@ pip install -r requirements.txt
 pytest
 ```
 
-160 tests cover image-metric extraction, normalization math, engagement
+166 tests cover image-metric extraction, normalization math, engagement
 calculations, recommendation rules, hashtag analysis, audience timezone
 weighting, caption-feature bucketing, caption generation, both Instagram
 providers, and the full API (auth, account connect/import, dashboard,
@@ -341,6 +341,21 @@ caveat that these are correlations, not causes: the image, caption, and
 timing all varied too, and Instagram exposes no per-hashtag attribution.
 There is deliberately no "recommended hashtags to grow" feature, because
 nothing in the available data would support one.
+
+## Single-user mode
+
+For a personal deployment, `SINGLE_USER_MODE=true` in `backend/.env`
+removes the login screen: every request resolves to one owner account.
+Leave `SINGLE_USER_EMAIL` blank and it adopts the oldest existing
+account, so an already-running deployment keeps its connected Instagram
+account and imported history.
+
+**This is not access control.** It makes every visitor the owner, and the
+upload endpoint accepts files from anyone who can reach it. Only enable
+it where the deployment is restricted at the network layer — an IP
+allowlist, firewall, HTTP basic auth on the proxy, or a VPN. The backend
+logs a warning at startup whenever the flag is on. It is off by default
+and every endpoint still enforces authentication when it is.
 
 ## Scoring philosophy
 
