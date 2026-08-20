@@ -57,3 +57,40 @@ class DashboardResponse(BaseModel):
     by_media_type: list[MediaTypeStat]
     has_enough_data: bool
     insufficient_data_message: str | None = None
+
+
+class HourAudienceRead(BaseModel):
+    hour_utc: int
+    hour_local: int
+    awake_fraction: float
+
+
+class TopCountryRead(BaseModel):
+    country: str
+    follower_count: int
+    share: float
+
+
+class AudienceReport(BaseModel):
+    has_enough_data: bool
+    message: str | None
+    hours: list[HourAudienceRead]
+    top_countries: list[TopCountryRead]
+    # Share of reported followers we could place in a timezone at all.
+    coverage: float
+    caveat: str
+
+
+class FeatureGroupRead(BaseModel):
+    feature: str
+    group: str
+    post_count: int
+    avg_engagement_rate: float | None
+    vs_median: float | None
+
+
+class CaptionFeatureReport(BaseModel):
+    has_enough_data: bool
+    message: str | None
+    features: list[FeatureGroupRead]
+    caveat: str

@@ -392,6 +392,56 @@ class MetaInstagramProvider(InstagramProvider):
         return result
 
 
+    def get_follower_demographics(
+        self, ig_user_id: str, access_token: str | None = None
+    ) -> dict[str, int]:
+        """
+        Follower counts by country, via the follower_demographics insight.
+
+        Meta withholds this below 100 followers and caps it at the top
+        audience segments, so a small or missing result is normal and is
+        returned as {} rather than raised.
+        """
+        self._require_credentials()
+        token = self._token(access_token)
+        try:
+            payload = self._request(
+                "GET",
+                self._graph_url(f"{ig_user_id or 'me'}/insights"),
+                params={
+                    "metric": "follower_demographics",
+                    "period": "lifetime",
+                    "metric_type": "total_value",
+                    "breakdown": "country",
+                    "access_token": token,
+                },
+            )
+        except MetaApiError as exc:
+            logger.warning("Follower demographics unavailable for %s: %s", ig_user_id, exc)
+            return {}
+
+        return _parse_country_breakdown(payload)
+
+
+def _parse_country_breakdown(payload: dict) -> dict[str, int]:
+    """
+    Pull {country_code: follower_count} out of a follower_demographics
+    response. The breakdown nests several levels deep and Meta has
+    reshaped it before, so every level is accessed defensively -- a shape
+    we don't recognise yields {} rather than an exception.
+    """
+    result: dict[str, int] = {}
+    for entry in payload.get("data", []):
+        total_value = entry.get("total_value") or {}
+        for breakdown in total_value.get("breakdowns", []) or []:
+            for row in breakdown.get("results", []) or []:
+                values = row.get("dimension_values") or []
+                count = row.get("value")
+                if values and isinstance(count, int):
+                    result[str(values[0]).upper()] = count
+    return result
+
+
 def _parse_timestamp(value: str | None) -> datetime:
     """Parse Meta's ISO-8601 timestamps (e.g. 2024-05-01T12:34:56+0000)."""
     if not value:

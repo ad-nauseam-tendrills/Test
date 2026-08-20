@@ -367,3 +367,65 @@ def test_account_insights_requests_no_deprecated_metrics(configured_provider):
     requested = route.calls[0].request.url.params["metric"]
     assert "profile_views" not in requested
     assert "impressions" not in requested
+
+
+# --- Follower demographics -----------------------------------------------
+
+
+@respx.mock
+def test_follower_demographics_parses_country_breakdown(configured_provider):
+    respx.get(f"{GRAPH_BASE_URL}/v23.0/me/insights").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "name": "follower_demographics",
+                        "total_value": {
+                            "breakdowns": [
+                                {
+                                    "dimension_keys": ["country"],
+                                    "results": [
+                                        {"dimension_values": ["US"], "value": 1200},
+                                        {"dimension_values": ["GB"], "value": 300},
+                                    ],
+                                }
+                            ]
+                        },
+                    }
+                ]
+            },
+        )
+    )
+    result = configured_provider.get_follower_demographics("me", access_token="tok")
+    assert result == {"US": 1200, "GB": 300}
+
+
+@respx.mock
+def test_follower_demographics_returns_empty_when_withheld(configured_provider):
+    """Meta withholds this below 100 followers -- normal, not an error."""
+    respx.get(f"{GRAPH_BASE_URL}/v23.0/me/insights").mock(
+        return_value=httpx.Response(
+            400, json={"error": {"message": "Not enough followers to show demographics"}}
+        )
+    )
+    assert configured_provider.get_follower_demographics("me", access_token="tok") == {}
+
+
+@respx.mock
+def test_follower_demographics_tolerates_unexpected_shape(configured_provider):
+    respx.get(f"{GRAPH_BASE_URL}/v23.0/me/insights").mock(
+        return_value=httpx.Response(200, json={"data": [{"name": "follower_demographics"}]})
+    )
+    assert configured_provider.get_follower_demographics("me", access_token="tok") == {}
+
+
+def test_mock_provider_demographics_are_deterministic_and_varied():
+    from app.services.instagram.mock_provider import MockInstagramProvider
+
+    provider = MockInstagramProvider()
+    a = provider.get_follower_demographics("mock_user_1")
+    b = provider.get_follower_demographics("mock_user_1")
+    assert a == b
+    assert len(a) > 1
+    assert all(isinstance(v, int) and v > 0 for v in a.values())

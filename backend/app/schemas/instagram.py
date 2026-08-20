@@ -16,6 +16,7 @@ class InstagramAccountRead(BaseModel):
     follower_count: int | None
     is_active: bool
     last_synced_at: datetime | None
+    demographics_synced_at: datetime | None = None
 
 
 class ConnectAccountRequest(BaseModel):

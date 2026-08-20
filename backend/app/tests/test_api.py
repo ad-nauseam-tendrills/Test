@@ -340,3 +340,82 @@ def test_captions_rejects_another_users_image(client, monkeypatch):
     intruder = _auth_headers(client, "intruder@example.com")
     resp = client.post(f"/api/v1/images/{image['id']}/captions", headers=intruder)
     assert resp.status_code == 404
+
+
+# --- Audience & caption features -----------------------------------------
+
+
+def test_audience_without_account(client):
+    headers = _auth_headers(client, "noaudience@example.com")
+    resp = client.get("/api/v1/analytics/audience", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_enough_data"] is False
+    assert body["caveat"]
+
+
+def test_import_populates_demographics_and_audience(client):
+    headers = _auth_headers(client, "audienceuser@example.com")
+    connect = client.post("/api/v1/accounts/connect", json={"provider": "mock"}, headers=headers)
+    account = connect.json()
+    client.post(f"/api/v1/accounts/{account['id']}/import", headers=headers)
+
+    resp = client.get("/api/v1/analytics/audience", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_enough_data"] is True
+    assert len(body["hours"]) == 24
+    assert len(body["top_countries"]) > 0
+    assert 0 < body["coverage"] <= 1
+    # Awake fraction must actually vary across the day for a real audience.
+    fractions = {h["awake_fraction"] for h in body["hours"]}
+    assert len(fractions) > 1
+
+
+def test_audience_local_hours_respect_utc_offset(client):
+    headers = _auth_headers(client, "offsetuser@example.com")
+    connect = client.post("/api/v1/accounts/connect", json={"provider": "mock"}, headers=headers)
+    client.post(f"/api/v1/accounts/{connect.json()['id']}/import", headers=headers)
+
+    resp = client.get("/api/v1/analytics/audience?utc_offset=-5", headers=headers)
+    hours = {h["hour_utc"]: h["hour_local"] for h in resp.json()["hours"]}
+    assert hours[12] == 7
+
+
+def test_sync_demographics_endpoint(client):
+    headers = _auth_headers(client, "syncdemo@example.com")
+    connect = client.post("/api/v1/accounts/connect", json={"provider": "mock"}, headers=headers)
+    account = connect.json()
+
+    resp = client.post(f"/api/v1/accounts/{account['id']}/sync-demographics", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["demographics_synced_at"] is not None
+
+
+def test_sync_demographics_rejects_another_users_account(client):
+    owner = _auth_headers(client, "demoowner@example.com")
+    account = client.post(
+        "/api/v1/accounts/connect", json={"provider": "mock"}, headers=owner
+    ).json()
+
+    intruder = _auth_headers(client, "demointruder@example.com")
+    resp = client.post(f"/api/v1/accounts/{account['id']}/sync-demographics", headers=intruder)
+    assert resp.status_code == 404
+
+
+def test_caption_features_with_imported_posts(client):
+    headers = _auth_headers(client, "capfeatures@example.com")
+    connect = client.post("/api/v1/accounts/connect", json={"provider": "mock"}, headers=headers)
+    client.post(f"/api/v1/accounts/{connect.json()['id']}/import", headers=headers)
+
+    resp = client.get("/api/v1/analytics/caption-features", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["caveat"]
+    for row in body["features"]:
+        assert row["post_count"] >= 4
+        assert row["feature"] and row["group"]
+
+
+def test_caption_features_requires_authentication(client):
+    assert client.get("/api/v1/analytics/caption-features").status_code == 401

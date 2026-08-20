@@ -32,12 +32,12 @@ backend/
     schemas/             # Pydantic request/response models
     services/
       instagram/         # InstagramProvider abstraction (mock + Meta placeholder)
-      analytics/         # engagement, normalization, timing calculations
+      analytics/         # engagement, normalization, timing, audience, captions
       image_analysis/    # Pillow/OpenCV measurable-property extraction
       image_processing/  # Artwork Integrity optimization engine
       recommendations/   # rule-based recommendations + heuristic scoring
       captions/          # Claude-backed caption suggestions
-    tests/                # pytest suite (114 tests)
+    tests/                # pytest suite (160 tests)
   alembic/                # migrations
   scripts/seed_mock_data.py
 frontend/
@@ -155,10 +155,11 @@ pip install -r requirements.txt
 pytest
 ```
 
-114 tests cover image-metric extraction, normalization math, engagement
-calculations, recommendation rules, hashtag analysis, caption generation,
-both Instagram providers, and the full API (auth, account connect/import,
-dashboard, OAuth callback security, upload → analyze → optimize).
+160 tests cover image-metric extraction, normalization math, engagement
+calculations, recommendation rules, hashtag analysis, audience timezone
+weighting, caption-feature bucketing, caption generation, both Instagram
+providers, and the full API (auth, account connect/import, dashboard,
+OAuth callback security, upload → analyze → optimize).
 
 The suite **drops every table**, so `conftest.py` forces `DATABASE_URL` to
 a test database, overriding whatever is in the environment, and refuses to
@@ -188,8 +189,9 @@ target with `TEST_DATABASE_URL`, never `DATABASE_URL`.
 8. Review the heuristic score report (image readiness, timing opportunity,
    historical similarity, overall readiness) — every score comes with a
    plain-language explanation of how it was computed.
-9. Optionally generate caption suggestions in the artist's own voice, and
-   review hashtag usage across their history on the dashboard.
+9. Optionally generate caption suggestions in the artist's own voice.
+10. Review audience timezones, caption habits, and hashtag usage on the
+    dashboard — all derived from the account's own data.
 
 ## Instagram integration
 
@@ -277,6 +279,25 @@ never to invent facts about the work. Requires `ANTHROPIC_API_KEY` in
 `backend/.env`; without it the endpoint returns a clear "not configured"
 message and nothing else in the app is affected.
 
+**Audience timing** (dashboard) uses Meta's `follower_demographics`
+insight to map followers to countries, then reports what fraction of them
+are in their waking hours at each posting time, translated into your own
+local clock. It deliberately stops there: it does not claim that posting
+when more people are awake produces more engagement, only that a given
+hour reaches more or fewer waking followers — a fact about timezones, not
+a prediction about behaviour. Your own historical engagement stays a
+separate signal. Demographics refresh automatically on import, or via
+`POST /accounts/{id}/sync-demographics`. Meta withholds the breakdown
+below 100 followers, and the panel says so rather than guessing.
+
+**Caption habits** (dashboard) buckets your own captions by structural
+traits — length, whether they ask a question, emoji use, single vs.
+multi-line, opening-line length — and compares each group against your
+median. A trait only appears when at least two of its groups clear the
+minimum sample, so there is always something to compare against rather
+than a lone number. Buckets rather than continuous correlations, because
+an artist has tens of posts, not thousands.
+
 **Hashtag insight** (dashboard) groups the account's own posts by the
 hashtags they carry and reports each tag's average engagement against the
 account's median. Tags used on fewer than three posts are listed but get
@@ -337,6 +358,10 @@ publishing), `PostOutcome` (future predicted-vs-actual tracking),
 
 - **Instagram publishing is not implemented.** The Meta integration reads
   posts and insights only; nothing is ever published to Instagram.
+- **Timezone offsets are approximate.** Countries map to a single
+  standard UTC offset; daylight saving is ignored (up to an hour of
+  drift) and multi-zone countries like the US use their most populous
+  zone. The panel states this.
 - **No historical follower counts.** Meta's API exposes only the *current*
   follower count, so real imported posts are all stamped with today's
   figure. Follower-normalized comparisons across a long history are

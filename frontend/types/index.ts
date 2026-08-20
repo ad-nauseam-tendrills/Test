@@ -198,3 +198,39 @@ export interface GenerateCaptionsResponse {
   captions: CaptionOption[];
   note: string;
 }
+
+export interface HourAudience {
+  hour_utc: number;
+  hour_local: number;
+  awake_fraction: number;
+}
+
+export interface TopCountry {
+  country: string;
+  follower_count: number;
+  share: number;
+}
+
+export interface AudienceReport {
+  has_enough_data: boolean;
+  message: string | null;
+  hours: HourAudience[];
+  top_countries: TopCountry[];
+  coverage: number;
+  caveat: string;
+}
+
+export interface FeatureGroup {
+  feature: string;
+  group: string;
+  post_count: number;
+  avg_engagement_rate: number | null;
+  vs_median: number | null;
+}
+
+export interface CaptionFeatureReport {
+  has_enough_data: boolean;
+  message: string | null;
+  features: FeatureGroup[];
+  caveat: string;
+}

@@ -19,17 +19,27 @@ from app.services.instagram.base import (
 
 MEDIA_TYPES = ["IMAGE", "IMAGE", "IMAGE", "CAROUSEL_ALBUM", "CAROUSEL_ALBUM", "VIDEO"]
 
+# Deliberately varied along the axes the caption-feature analysis looks
+# at -- length, questions, emoji, single vs. multi-line, opener length --
+# so the panel has real distinctions to draw on demo data.
 CAPTION_SNIPPETS = [
-    "New piece finished after three weeks of work. Swipe to see the detail shots.",
-    "Studio light this morning was too good not to shoot.",
-    "Experimenting with a new color palette for this series.",
-    "Behind the scenes from this week's shoot.",
-    "This one almost didn't happen -- glad I kept going.",
-    "A quiet study in contrast and negative space.",
+    "Studio light.",
     "Back to film for this series. No regrets.",
-    "Detail shot from the piece I'm showing next month.",
-    "Some days the light does all the work for you.",
-    "Process shot -- more of these coming if people want them.",
+    "A quiet study in contrast and negative space.",
+    "Which one would you hang? 🖼",
+    "Does this read as morning or evening to you?",
+    "New piece finished after three weeks of work.\n\nSwipe for the detail shots — "
+    "the underpainting is doing most of the work here and it barely shows at full size.",
+    "Process shot ✏️\n\nMore of these if people want them.",
+    "This one almost didn't happen -- glad I kept going. Three false starts, a "
+    "ruined ground, and about a week of staring at it before the last pass finally "
+    "landed. Keeping the failures visible in the lower left on purpose.",
+    "Some days the light does all the work for you ☀️",
+    "Detail from the piece I'm showing next month.\n\nStill deciding on the frame.",
+    "Experimenting with a new palette for this series. Warmer than I usually go, and "
+    "I'm still not sure whether it's working or whether I've just been looking at it "
+    "too long. Thoughts welcome.",
+    "Behind the scenes from this week's shoot 📷",
 ]
 
 # Hashtag sets an artist might habitually reach for. A few appear often
@@ -167,6 +177,24 @@ class MockInstagramProvider(InstagramProvider):
         rng = self._rng(ig_media_id)
         followers = rng.randint(1800, 42000)
         return self._generate_insights(rng, followers, rng.choice(MEDIA_TYPES), datetime.now(timezone.utc))
+
+    def get_follower_demographics(
+        self, ig_user_id: str, access_token: str | None = None
+    ) -> dict[str, int]:
+        """
+        A plausible international audience, weighted toward one home
+        country. Deterministic per account, and spread across several
+        timezones so the audience-hours analysis has something real to
+        distinguish.
+        """
+        rng = self._rng(ig_user_id + "-demographics")
+        total = self.get_account(ig_user_id).follower_count or 1000
+        home, *rest = rng.sample(
+            ["US", "GB", "DE", "FR", "BR", "JP", "AU", "CA", "IN", "IT", "ES", "MX"], 6
+        )
+        shares = [0.45, 0.15, 0.12, 0.10, 0.10, 0.08]
+        countries = [home] + rest
+        return {c: max(1, int(total * share)) for c, share in zip(countries, shares)}
 
     def get_account_insights(self, ig_user_id: str, access_token: str | None = None) -> dict:
         account = self.get_account(ig_user_id)

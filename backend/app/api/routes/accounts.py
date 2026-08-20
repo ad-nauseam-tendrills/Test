@@ -186,6 +186,40 @@ def disconnect_account(
     return account
 
 
+@router.post("/{account_id}/sync-demographics", response_model=InstagramAccountRead)
+def sync_demographics(
+    account_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    """
+    Refresh the cached follower-country breakdown for an account.
+
+    Demographics change slowly, so this is an explicit action rather than
+    part of every import -- it keeps a dashboard load from spending an API
+    call. An empty result is normal (Meta withholds the breakdown below
+    100 followers) and is stored as such rather than treated as an error.
+    """
+    account = _get_owned_account(db, account_id, current_user)
+    provider = get_provider(account.provider)
+
+    try:
+        demographics = provider.get_follower_demographics(
+            account.ig_user_id, access_token=account.access_token
+        )
+    except MetaCredentialsMissingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except MetaApiError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not fetch audience demographics: {exc}",
+        )
+
+    account.audience_countries = demographics
+    account.demographics_synced_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(account)
+    return account
+
+
 @router.post("/{account_id}/import", response_model=ImportPostsResponse)
 def import_posts(
     account_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
@@ -247,6 +281,19 @@ def import_posts(
         imported += 1
 
     account.last_synced_at = datetime.now(timezone.utc)
+
+    # Demographics are cheap (one call) and the audience panel is useless
+    # without them, so refresh them alongside an import rather than making
+    # the user find a second button. A failure here must not lose the
+    # posts we just imported.
+    try:
+        account.audience_countries = provider.get_follower_demographics(
+            account.ig_user_id, access_token=account.access_token
+        )
+        account.demographics_synced_at = datetime.now(timezone.utc)
+    except (MetaCredentialsMissingError, MetaApiError) as exc:
+        logger.warning("Demographics refresh failed during import: %s", exc)
+
     db.commit()
 
     return ImportPostsResponse(imported_count=imported, skipped_count=skipped)

@@ -93,5 +93,18 @@ class InstagramProvider(ABC):
 
     @abstractmethod
     def get_account_insights(self, ig_user_id: str, access_token: str | None = None) -> dict:
-        """Fetch account-level insights (e.g. reach, profile views)."""
+        """Fetch account-level insights (e.g. reach, views)."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_follower_demographics(
+        self, ig_user_id: str, access_token: str | None = None
+    ) -> dict[str, int]:
+        """
+        Follower counts keyed by ISO-3166 alpha-2 country code.
+
+        Returns an empty dict when the breakdown is unavailable -- Meta
+        withholds it below 100 followers, and callers must treat that as
+        "unknown" rather than "no followers abroad".
+        """
         raise NotImplementedError

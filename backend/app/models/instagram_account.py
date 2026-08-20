@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import ForeignKey, String, DateTime, Integer
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -38,6 +38,15 @@ class InstagramAccount(UUIDPKMixin, TimestampMixin, Base):
     # logs/exports) from the profile fields above. ---
     access_token: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Follower counts by ISO country code, from Meta's follower_demographics
+    # insight. Cached here because it changes slowly and every dashboard
+    # load would otherwise spend an API call on it. Empty when Meta
+    # withholds the breakdown (accounts under 100 followers).
+    audience_countries: Mapped[dict] = mapped_column(JSONB, default=dict)
+    demographics_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
