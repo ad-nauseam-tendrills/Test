@@ -23,8 +23,12 @@ TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null
 SWAP_MB=$(awk '/SwapTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
 USABLE_MB=$((TOTAL_RAM_MB + SWAP_MB))
 RECOMMENDED_MB=2048
+# Gate below the target rather than at it: a "2 GB" machine reports
+# ~1975 MB once firmware and kernel reservations are taken out, and
+# prompting it for swap it does not need is just noise.
+MIN_USABLE_MB=1800
 
-if (( TOTAL_RAM_MB > 0 && USABLE_MB < RECOMMENDED_MB )); then
+if (( TOTAL_RAM_MB > 0 && USABLE_MB < MIN_USABLE_MB )); then
 	echo "==> WARNING: ${TOTAL_RAM_MB} MB RAM + ${SWAP_MB} MB swap detected."
 	echo "    The build needs roughly ${RECOMMENDED_MB} MB. Without more, Docker"
 	echo "    will be OOM-killed partway through (often 'exit code 137')."
