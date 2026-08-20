@@ -106,6 +106,12 @@ Then add `META_APP_ID` / `META_APP_SECRET` to `backend/.env` and:
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
+**Memory.** The Next.js build and the OpenCV/numpy wheels need roughly
+2 GB. On a smaller droplet Docker is OOM-killed mid-build with an error
+that never mentions memory (typically `exit code 137`). `setup.sh` checks
+this up front and offers to create a swapfile; pass `AUTO_SWAP=1` to skip
+the prompt.
+
 **No domain required.** The default hostname uses
 [sslip.io](https://sslip.io), which resolves `1-2-3-4.sslip.io` to
 `1.2.3.4` and works with Let's Encrypt, so Caddy provisions a real

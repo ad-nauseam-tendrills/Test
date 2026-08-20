@@ -14,6 +14,44 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# --- Memory check -------------------------------------------------------
+# The Next.js production build and the OpenCV/numpy wheels need well over
+# 512 MB. On a small droplet Docker gets OOM-killed mid-build with an
+# error that does not mention memory ("exit code 137", or a truncated
+# npm/pip failure), so this checks up front and offers swap instead.
+TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
+SWAP_MB=$(awk '/SwapTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
+USABLE_MB=$((TOTAL_RAM_MB + SWAP_MB))
+RECOMMENDED_MB=2048
+
+if (( TOTAL_RAM_MB > 0 && USABLE_MB < RECOMMENDED_MB )); then
+	echo "==> WARNING: ${TOTAL_RAM_MB} MB RAM + ${SWAP_MB} MB swap detected."
+	echo "    The build needs roughly ${RECOMMENDED_MB} MB. Without more, Docker"
+	echo "    will be OOM-killed partway through (often 'exit code 137')."
+	NEEDED_SWAP_MB=$(( RECOMMENDED_MB - USABLE_MB ))
+	# Round up to the next whole GB, with 2 GB as a sensible floor.
+	SWAP_GB=$(( (NEEDED_SWAP_MB + 1023) / 1024 ))
+	(( SWAP_GB < 2 )) && SWAP_GB=2
+
+	if [[ "${AUTO_SWAP:-}" == "1" ]] || { [[ -t 0 ]] && read -rp "    Create a ${SWAP_GB}GB swapfile now? [y/N] " reply && [[ "$reply" =~ ^[Yy]$ ]]; }; then
+		if [[ -f /swapfile ]]; then
+			echo "    /swapfile already exists, leaving it alone."
+		else
+			echo "==> Creating ${SWAP_GB}GB swapfile (needs root)..."
+			sudo fallocate -l "${SWAP_GB}G" /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_GB * 1024))
+			sudo chmod 600 /swapfile
+			sudo mkswap /swapfile
+			sudo swapon /swapfile
+			# Persist across reboots.
+			grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+			echo "    Swap active: $(free -h | awk '/Swap/ {print $2}')"
+		fi
+	else
+		echo "    Continuing without swap. If the build dies, re-run with AUTO_SWAP=1."
+	fi
+	echo
+fi
+
 echo "==> Detecting public IP..."
 PUBLIC_IP="${PUBLIC_IP:-$(curl -fsS --max-time 10 https://api.ipify.org)}"
 if [[ -z "$PUBLIC_IP" ]]; then
