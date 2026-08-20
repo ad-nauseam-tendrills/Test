@@ -368,7 +368,12 @@ class MetaInstagramProvider(InstagramProvider):
                 "GET",
                 self._graph_url(f"{ig_user_id or 'me'}/insights"),
                 params={
-                    "metric": "reach,profile_views",
+                    # `profile_views` and `impressions` were deprecated in
+                    # Graph API v22.0; `views` replaces impressions and
+                    # profile_views has no direct successor. Requesting a
+                    # deprecated metric fails the whole call, so only
+                    # currently-supported metrics belong here.
+                    "metric": "reach,views",
                     "period": "day",
                     "metric_type": "total_value",
                     "access_token": token,

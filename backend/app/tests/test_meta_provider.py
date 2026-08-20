@@ -347,10 +347,23 @@ def test_account_insights_parses_total_values(configured_provider):
             json={
                 "data": [
                     {"name": "reach", "total_value": {"value": 9000}},
-                    {"name": "profile_views", "total_value": {"value": 320}},
+                    {"name": "views", "total_value": {"value": 320}},
                 ]
             },
         )
     )
     result = configured_provider.get_account_insights("me", access_token="tok")
-    assert result == {"reach": 9000, "profile_views": 320}
+    assert result == {"reach": 9000, "views": 320}
+
+
+@respx.mock
+def test_account_insights_requests_no_deprecated_metrics(configured_provider):
+    """profile_views/impressions were removed in v22.0 and 400 the whole call."""
+    route = respx.get(f"{GRAPH_BASE_URL}/v23.0/me/insights").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    configured_provider.get_account_insights("me", access_token="tok")
+
+    requested = route.calls[0].request.url.params["metric"]
+    assert "profile_views" not in requested
+    assert "impressions" not in requested
