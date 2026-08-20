@@ -1,0 +1,39 @@
+# Production overlay for a VM that ALREADY has a reverse proxy (nginx,
+# Apache, Traefik, ...) holding ports 80 and 443.
+#
+# Use this INSTEAD of docker-compose.prod.yml -- never both, since that
+# one starts its own Caddy and would fight the existing proxy for those
+# ports:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.behind-proxy.yml up -d --build
+#
+# Every service binds to 127.0.0.1 only. The host proxy reaches them over
+# loopback; nothing is exposed to the internet directly. See
+# deploy/nginx-site.conf.example for the vhost to add.
+#
+# Required in a root .env file (deploy/setup.sh writes it):
+#   PUBLIC_URL         https://your.hostname
+#   POSTGRES_PASSWORD  generated database password
+
+services:
+  db:
+    # `!override` is required: compose MERGES port lists by default, so a
+    # plain list here would keep the base file's public 0.0.0.0 binding
+    # alongside this one and leave Postgres exposed to the internet.
+    ports: !override
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set - run ./deploy/setup.sh}
+
+  backend:
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:?}@db:5432/instaopt
+
+  frontend:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL:?PUBLIC_URL must be set - run ./deploy/setup.sh}/api/v1
+    ports: !override
+      - "127.0.0.1:3000:3000"

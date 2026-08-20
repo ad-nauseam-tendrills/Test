@@ -106,6 +106,24 @@ Then add `META_APP_ID` / `META_APP_SECRET` to `backend/.env` and:
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
+**If the machine already runs a web server** (nginx, Apache, Traefik),
+do not use `docker-compose.prod.yml` — its Caddy would fight for ports
+80/443 and take the existing site down. Use the behind-a-proxy overlay
+instead, which binds every service to `127.0.0.1` and starts no proxy of
+its own:
+
+```bash
+docker compose -f docker-compose.yml \
+  -f docker-compose.behind-proxy.yml up -d --build
+```
+
+Then add `deploy/nginx-site.conf.example` as a vhost for your hostname
+and issue a certificate with `certbot --nginx -d your.hostname`. The
+vhost claims one `server_name`, so other sites are unaffected. Note it
+raises `client_max_body_size` to 30M — nginx's 1M default would reject
+image uploads with a 413 before they ever reach the app. `setup.sh`
+detects an existing listener on port 80 and prints these steps for you.
+
 **Memory.** The Next.js build and the OpenCV/numpy wheels need roughly
 2 GB. On a smaller droplet Docker is OOM-killed mid-build with an error
 that never mentions memory (typically `exit code 137`). `setup.sh` checks

@@ -106,7 +106,60 @@ else
 	echo "==> Wrote backend/.env (generated a random SECRET_KEY)"
 fi
 
-cat <<EOF
+# --- Detect an existing web server on :80 --------------------------------
+# If something already owns port 80, our Caddy cannot bind it. Starting
+# the normal prod overlay would fail, so print the behind-a-proxy path
+# instead of instructions that cannot work on this machine.
+EXISTING_PROXY=""
+if command -v ss >/dev/null 2>&1; then
+	EXISTING_PROXY=$(ss -tlnp 2>/dev/null | awk '$4 ~ /:80$/ {print $0}' | grep -oE '"[a-z0-9_-]+"' | head -1 | tr -d '"' || true)
+fi
+
+if [[ -n "$EXISTING_PROXY" ]]; then
+	cat <<EOF
+
+------------------------------------------------------------------
+Next steps  ('${EXISTING_PROXY}' already owns port 80)
+------------------------------------------------------------------
+
+This machine already runs a web server, so the bundled Caddy is NOT
+used -- it would fight for ports 80/443 and take your existing site
+down. Run the app on loopback and let ${EXISTING_PROXY} route to it.
+
+1. Register this EXACT redirect URI in your Meta app, under
+   Instagram -> API setup with Instagram business login ->
+   Business login settings:
+
+     ${REDIRECT_URI}
+
+2. Put your Instagram App ID and Secret into backend/.env
+   (the INSTAGRAM ones, not the Facebook App ID/Secret):
+
+     nano backend/.env
+
+3. Start the app on loopback only:
+
+     docker compose -f docker-compose.yml \\
+       -f docker-compose.behind-proxy.yml up -d --build
+
+4. Add the vhost and reload (this only claims ${SITE_ADDRESS},
+   so your other sites are untouched):
+
+     sudo cp deploy/nginx-site.conf.example /etc/nginx/sites-available/${SITE_ADDRESS}
+     sudo sed -i 's/SITE_HOSTNAME/${SITE_ADDRESS}/g' /etc/nginx/sites-available/${SITE_ADDRESS}
+     sudo ln -s /etc/nginx/sites-available/${SITE_ADDRESS} /etc/nginx/sites-enabled/
+     sudo nginx -t && sudo systemctl reload nginx
+
+5. Issue a certificate for the new hostname:
+
+     sudo certbot --nginx -d ${SITE_ADDRESS}
+
+6. Open ${PUBLIC_URL}
+
+------------------------------------------------------------------
+EOF
+else
+	cat <<EOF
 
 ------------------------------------------------------------------
 Next steps
@@ -118,10 +171,10 @@ Next steps
 
      ${REDIRECT_URI}
 
-2. Put your Instagram App ID and Secret into backend/.env:
+2. Put your Instagram App ID and Secret into backend/.env
+   (the INSTAGRAM ones, not the Facebook App ID/Secret):
 
      nano backend/.env
-     # set META_APP_ID and META_APP_SECRET
 
 3. Start everything:
 
@@ -134,3 +187,4 @@ Next steps
 
 ------------------------------------------------------------------
 EOF
+fi
