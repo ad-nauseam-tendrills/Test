@@ -249,8 +249,19 @@ target with `TEST_DATABASE_URL`, never `DATABASE_URL`.
    Facebook App ID/Secret on the main settings page — using those produces
    a confusing "Invalid platform app" error, so check this first if
    authentication fails.
-4. Add your Instagram account under the token-generation step, and
-   register your redirect URI under Instagram business login settings.
+4. **Permissions and features → add `instagram_business_manage_insights`.**
+   The console's "Add all required permissions" button covers only
+   basic/comments/messages. Without the insights permission, OAuth still
+   succeeds and posts still import, but every metric returns empty — which
+   presents as an app bug rather than a missing permission.
+5. Add your Instagram account under the token-generation step (assign it
+   the **Instagram Tester** role in the Roles tab first, and accept the
+   invite from that Instagram account).
+6. Register your redirect URI under **Set up Instagram business login**.
+
+Webhooks and App Review are not needed: this app never receives webhooks,
+and a development-mode app serves accounts holding a role on it without
+review.
 
 **Redirect URI.** Must be HTTPS; Instagram rejects `http://localhost`. For
 local development, tunnel the backend and register that URL:

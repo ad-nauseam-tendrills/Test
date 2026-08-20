@@ -58,6 +58,16 @@ from app.services.instagram.base import (
 logger = logging.getLogger(__name__)
 
 # Scopes required for reading profile data and post-level insights.
+#
+# instagram_business_manage_insights must be added to the app manually in
+# the Meta console under "Permissions and features" -- the console's "Add
+# all required permissions" button covers only basic/comments/messages.
+# Without it the OAuth flow still succeeds and media still imports, but
+# every insights call fails and posts land with no metrics at all.
+#
+# Comments and messaging scopes are deliberately not requested: this app
+# reads performance data and never touches DMs, so asking for them would
+# be requesting access it has no use for.
 REQUIRED_SCOPES = ["instagram_business_basic", "instagram_business_manage_insights"]
 
 AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize"
