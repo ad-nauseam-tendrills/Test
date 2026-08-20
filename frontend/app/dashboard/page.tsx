@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { BarChart } from "@/components/ui/BarChart";
 import { PostCard } from "@/components/dashboard/PostCard";
+import { HashtagPanel } from "@/components/dashboard/HashtagPanel";
 import { api, ApiError } from "@/lib/api";
 import { DashboardResponse, InstagramAccount } from "@/types";
 import { formatHour, formatNumber, formatPercent, mediaTypeLabel } from "@/lib/utils";
@@ -167,6 +168,8 @@ function DashboardContent() {
           </div>
         </Card>
       )}
+
+      <HashtagPanel />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

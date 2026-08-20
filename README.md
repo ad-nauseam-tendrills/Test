@@ -36,7 +36,8 @@ backend/
       image_analysis/    # Pillow/OpenCV measurable-property extraction
       image_processing/  # Artwork Integrity optimization engine
       recommendations/   # rule-based recommendations + heuristic scoring
-    tests/                # pytest suite (57 tests)
+      captions/          # Claude-backed caption suggestions
+    tests/                # pytest suite (114 tests)
   alembic/                # migrations
   scripts/seed_mock_data.py
 frontend/
@@ -154,17 +155,24 @@ pip install -r requirements.txt
 pytest
 ```
 
-57 tests cover image-metric extraction, normalization math, engagement
-calculations, recommendation rules, the provider abstraction, and the full
-API (auth, account connect/import, dashboard, upload → analyze → optimize).
+114 tests cover image-metric extraction, normalization math, engagement
+calculations, recommendation rules, hashtag analysis, caption generation,
+both Instagram providers, and the full API (auth, account connect/import,
+dashboard, OAuth callback security, upload → analyze → optimize).
+
+The suite **drops every table**, so `conftest.py` forces `DATABASE_URL` to
+a test database, overriding whatever is in the environment, and refuses to
+run if the target database name doesn't contain `test`. Override the
+target with `TEST_DATABASE_URL`, never `DATABASE_URL`.
 
 ## Core user flow
 
 1. Register/log in.
-2. Connect an Instagram account — in this MVP, always the **mock
-   provider** (`app/services/instagram/mock_provider.py`), which generates
-   realistic, deterministic synthetic post history locally. No real Meta
-   credentials are required and Instagram is never scraped.
+2. Connect an Instagram account — either the real Meta integration
+   ("Connect Instagram") or the **mock provider**
+   (`app/services/instagram/mock_provider.py`), which generates realistic,
+   deterministic synthetic post history locally and needs no credentials.
+   Instagram is never scraped either way.
 3. Import historical posts (post ID, timestamp, media type, caption, media
    URL, likes/comments/saves/shares, reach, impressions, profile visits,
    follower count at posting time).
@@ -180,6 +188,8 @@ API (auth, account connect/import, dashboard, upload → analyze → optimize).
 8. Review the heuristic score report (image readiness, timing opportunity,
    historical similarity, overall readiness) — every score comes with a
    plain-language explanation of how it was computed.
+9. Optionally generate caption suggestions in the artist's own voice, and
+   review hashtag usage across their history on the dashboard.
 
 ## Instagram integration
 
@@ -254,6 +264,28 @@ perspective/level correction. It never repaints any region, alters local
 shapes or faces, adds/removes objects, or changes composition beyond
 cropping. See `app/services/image_processing/optimizer.py`.
 
+## Caption suggestions & hashtag insight
+
+Two assistive features, both built to the same rule as the scores: they
+describe and suggest, they never predict.
+
+**Caption suggestions** (post detail page) send the image and a sample of
+the artist's own past captions to Claude, and return three options in
+that artist's voice. The model is instructed never to promise reach or
+likes, never to use engagement bait ("double tap if…", "save this"), and
+never to invent facts about the work. Requires `ANTHROPIC_API_KEY` in
+`backend/.env`; without it the endpoint returns a clear "not configured"
+message and nothing else in the app is affected.
+
+**Hashtag insight** (dashboard) groups the account's own posts by the
+hashtags they carry and reports each tag's average engagement against the
+account's median. Tags used on fewer than three posts are listed but get
+no average -- one post is noise. Every response carries an explicit
+caveat that these are correlations, not causes: the image, caption, and
+timing all varied too, and Instagram exposes no per-hashtag attribution.
+There is deliberately no "recommended hashtags to grow" feature, because
+nothing in the available data would support one.
+
 ## Scoring philosophy
 
 Every score in Aperture (`app/services/recommendations/scoring.py`) is an
@@ -320,6 +352,11 @@ publishing), `PostOutcome` (future predicted-vs-actual tracking),
   job is the natural fix.
 - The Meta integration is covered by tests with mocked HTTP; it has not
   been exercised against live Meta credentials.
+- **Caption suggestions cost money per call** and are not cached — each
+  press of "Suggest captions" is a fresh Claude API request. Fine at
+  personal scale; add caching before exposing it to many users.
+- **Caption quality depends on having past captions.** With no connected
+  account, the model infers a generic artist voice rather than yours.
 - No billing/subscription system.
 - No ML/prediction model — all recommendations and scores are rule-based
   heuristics, by design.
@@ -339,12 +376,13 @@ publishing), `PostOutcome` (future predicted-vs-actual tracking),
 2. Add a background job queue (e.g. Celery/RQ) for image analysis,
    optimization, and Instagram imports — a 60-post import currently makes
    one insights call per post inside the request.
-3. Build the first real prediction model using `PredictionScore` +
+3. Cache caption suggestions per image so re-opening a post page does not
+   re-bill an API call, and surface the `accepted` flag when a user copies
+   one (already stored, nothing reads it yet).
+4. Build the first real prediction model using `PredictionScore` +
    `PostOutcome` (already schema-ready) once enough real outcome data
    exists, and surface it alongside — never in place of — the heuristic
    scores.
-4. Add scheduled posting (`ScheduledPost` is schema-ready) once Meta
+5. Add scheduled posting (`ScheduledPost` is schema-ready) once Meta
    publishing is implemented, with explicit user confirmation before any
    post goes live.
-5. Add account-level settings for notification preferences and a proper
-   password-reset / email-verification flow ahead of any public launch.

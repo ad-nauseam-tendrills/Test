@@ -173,3 +173,28 @@ export interface ImageDetail {
   recommendations: Recommendation[];
   variants: ImageVariant[];
 }
+
+export interface HashtagStat {
+  tag: string;
+  post_count: number;
+  avg_engagement_rate: number | null;
+  vs_median: number | null;
+}
+
+export interface HashtagReport {
+  has_enough_data: boolean;
+  message: string | null;
+  hashtags: HashtagStat[];
+  caveat: string;
+}
+
+export interface CaptionOption {
+  id: string;
+  caption_text: string;
+  approach: string | null;
+}
+
+export interface GenerateCaptionsResponse {
+  captions: CaptionOption[];
+  note: string;
+}

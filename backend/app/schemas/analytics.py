@@ -32,6 +32,22 @@ class MediaTypeStat(BaseModel):
     avg_reach: float | None
 
 
+class HashtagStatRead(BaseModel):
+    tag: str
+    post_count: int
+    avg_engagement_rate: float | None
+    vs_median: float | None
+
+
+class HashtagReport(BaseModel):
+    has_enough_data: bool
+    message: str | None
+    hashtags: list[HashtagStatRead]
+    # Displayed alongside the numbers so they are never read as a
+    # causal claim about hashtag performance.
+    caveat: str
+
+
 class DashboardResponse(BaseModel):
     overview: OverviewStats
     best_posts: list[InstagramPostRead]

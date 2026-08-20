@@ -8,12 +8,15 @@ from app.models.user import User
 from app.schemas.analytics import (
     DashboardResponse,
     DayOfWeekStat,
+    HashtagReport,
+    HashtagStatRead,
     HourOfDayStat,
     MediaTypeStat,
     OverviewStats,
 )
 from app.schemas.instagram import InstagramPostRead
 from app.services.analytics.dashboard import build_dashboard
+from app.services.analytics.hashtags import CAVEAT as HASHTAG_CAVEAT, TaggedPost, analyze_hashtags
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -54,4 +57,40 @@ def get_dashboard(db: Session = Depends(get_db), current_user: User = Depends(ge
         by_media_type=[MediaTypeStat(**m) for m in data["by_media_type"]],
         has_enough_data=data["has_enough_data"],
         insufficient_data_message=data["insufficient_data_message"],
+    )
+
+
+@router.get("/hashtags", response_model=HashtagReport)
+def get_hashtags(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Hashtag usage and performance across this account's own history.
+
+    Descriptive only -- see services/analytics/hashtags.py for why these
+    numbers must not be presented as a causal growth lever.
+    """
+    account = (
+        db.query(InstagramAccount)
+        .filter(InstagramAccount.user_id == current_user.id, InstagramAccount.is_active.is_(True))
+        .first()
+    )
+    if not account:
+        return HashtagReport(
+            has_enough_data=False,
+            message="Connect an Instagram account to see hashtag insights.",
+            hashtags=[],
+            caveat=HASHTAG_CAVEAT,
+        )
+
+    data = build_dashboard(db, account.id)
+    tagged = [
+        TaggedPost(caption=post.caption, engagement_rate=extra["engagement_rate"])
+        for post, extra in data["all_posts"]
+    ]
+
+    report = analyze_hashtags(tagged)
+    return HashtagReport(
+        has_enough_data=report["has_enough_data"],
+        message=report["message"],
+        hashtags=[HashtagStatRead(**vars(s)) for s in report["hashtags"]],
+        caveat=report["caveat"],
     )

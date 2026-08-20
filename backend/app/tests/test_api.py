@@ -236,3 +236,107 @@ def test_meta_callback_surfaces_user_denial(client):
     )
     assert resp.status_code == 307
     assert "instagram=error" in resp.headers["location"]
+
+
+# --- Hashtags & captions -------------------------------------------------
+
+
+def test_hashtags_without_account(client):
+    headers = _auth_headers(client, "notags@example.com")
+    resp = client.get("/api/v1/analytics/hashtags", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_enough_data"] is False
+    assert body["hashtags"] == []
+    assert body["caveat"]
+
+
+def test_hashtags_with_imported_posts(client):
+    headers = _auth_headers(client, "tagsuser@example.com")
+    connect = client.post("/api/v1/accounts/connect", json={"provider": "mock"}, headers=headers)
+    account = connect.json()
+    client.post(f"/api/v1/accounts/{account['id']}/import", headers=headers)
+
+    resp = client.get("/api/v1/analytics/hashtags", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_enough_data"] is True
+    assert len(body["hashtags"]) > 0
+    assert body["caveat"]
+
+    # Tags are stored bare; the leading "#" is display formatting the UI adds.
+    for tag in body["hashtags"]:
+        assert not tag["tag"].startswith("#")
+        # Well-sampled tags get an average; thin ones are reported without one.
+        if tag["post_count"] < 3:
+            assert tag["avg_engagement_rate"] is None
+
+
+def test_hashtags_requires_authentication(client):
+    assert client.get("/api/v1/analytics/hashtags").status_code == 401
+
+
+def test_captions_without_api_key_returns_clear_error(client):
+    headers = _auth_headers(client, "nocaptions@example.com")
+    upload = client.post(
+        "/api/v1/images/upload",
+        headers=headers,
+        files={"file": ("test.jpg", _sample_jpeg_bytes(), "image/jpeg")},
+    )
+    image = upload.json()
+
+    resp = client.post(f"/api/v1/images/{image['id']}/captions", headers=headers)
+    assert resp.status_code == 400
+    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]
+
+
+def test_captions_endpoint_persists_suggestions(client, monkeypatch):
+    from app.services.captions.generator import CaptionOption
+
+    monkeypatch.setattr(
+        "app.api.routes.images.generate_captions",
+        lambda ctx: [
+            CaptionOption(text="A quiet study.", approach="observation"),
+            CaptionOption(text="Three weeks of work.", approach="process note"),
+        ],
+    )
+
+    headers = _auth_headers(client, "captionuser@example.com")
+    upload = client.post(
+        "/api/v1/images/upload",
+        headers=headers,
+        files={"file": ("test.jpg", _sample_jpeg_bytes(), "image/jpeg")},
+    )
+    image = upload.json()
+
+    resp = client.post(f"/api/v1/images/{image['id']}/captions", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [c["caption_text"] for c in body["captions"]] == [
+        "A quiet study.",
+        "Three weeks of work.",
+    ]
+    assert body["captions"][1]["approach"] == "process note"
+    # The disclaimer must travel with the suggestions.
+    assert "not a prediction" in body["note"].lower()
+
+
+def test_captions_rejects_another_users_image(client, monkeypatch):
+    from app.services.captions.generator import CaptionOption
+
+    monkeypatch.setattr(
+        "app.api.routes.images.generate_captions",
+        lambda ctx: [CaptionOption(text="x", approach="y")],
+    )
+
+    owner = _auth_headers(client, "owner@example.com")
+    upload = client.post(
+        "/api/v1/images/upload",
+        headers=owner,
+        files={"file": ("test.jpg", _sample_jpeg_bytes(), "image/jpeg")},
+    )
+    image = upload.json()
+
+    intruder = _auth_headers(client, "intruder@example.com")
+    resp = client.post(f"/api/v1/images/{image['id']}/captions", headers=intruder)
+    assert resp.status_code == 404

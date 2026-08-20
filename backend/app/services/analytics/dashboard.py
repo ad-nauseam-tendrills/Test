@@ -104,6 +104,9 @@ def build_dashboard(db: Session, account_id) -> dict:
         "overview": overview,
         "best_posts": [(p, e) for p, e in best_posts_sorted],
         "recent_posts": annotated[:10],
+        # Every annotated post, for consumers that need the full history
+        # (e.g. hashtag analysis) rather than the dashboard's top slice.
+        "all_posts": annotated,
         "by_day_of_week": performance_by_day_of_week(timed_posts),
         "by_hour_of_day": performance_by_hour_of_day(timed_posts),
         "by_media_type": performance_by_media_type(timed_posts),

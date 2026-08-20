@@ -3,6 +3,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+import anthropic
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -18,14 +20,18 @@ from app.core.storage import (
     variant_path,
 )
 from app.db.session import get_db
+from app.models.generated_caption import GeneratedCaption
 from app.models.image_analysis import ImageAnalysis
 from app.models.image_variant import ImageVariant
 from app.models.instagram_account import InstagramAccount
+from app.models.instagram_post import InstagramPost
 from app.models.recommendation import Recommendation
 from app.models.uploaded_image import UploadedImage
 from app.models.user import User
 from app.schemas.image import (
     AnalyzeImageResponse,
+    CaptionOptionRead,
+    GenerateCaptionsResponse,
     GenerateVariantRequest,
     ImageAnalysisRead,
     ImageVariantRead,
@@ -35,6 +41,11 @@ from app.schemas.image import (
     UploadedImageRead,
 )
 from app.services.analytics.dashboard import build_dashboard
+from app.services.captions.generator import (
+    CaptionContext,
+    CaptionsNotConfiguredError,
+    generate_captions,
+)
 from app.services.image_analysis.metrics import analyze_image
 from app.services.image_processing.optimizer import Adjustments, apply_adjustments
 from app.services.recommendations.rules import generate_recommendations
@@ -376,3 +387,85 @@ def generate_variant(
     out = ImageVariantRead.model_validate(variant)
     out.url = _to_public_url("variants", storage_key)
     return out
+
+
+CAPTION_NOTE = (
+    "Suggestions only -- a starting point in your own voice, not a prediction of "
+    "how the post will perform. Edit freely."
+)
+
+
+@router.post("/{image_id}/captions", response_model=GenerateCaptionsResponse)
+def generate_image_captions(
+    image_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    """Generate caption options for an uploaded image, in the artist's own voice."""
+    image = _get_owned_image(db, image_id, current_user)
+    latest_analysis = (
+        db.query(ImageAnalysis)
+        .filter(ImageAnalysis.image_id == image.id)
+        .order_by(ImageAnalysis.created_at.desc())
+        .first()
+    )
+
+    # Voice reference: this user's own strongest past captions. Restricted
+    # to their own connected accounts -- never another user's writing.
+    account_ids = [
+        a.id
+        for a in db.query(InstagramAccount).filter(InstagramAccount.user_id == current_user.id).all()
+    ]
+    past_captions: list[str] = []
+    if account_ids:
+        past_posts = (
+            db.query(InstagramPost)
+            .filter(InstagramPost.account_id.in_(account_ids), InstagramPost.caption.isnot(None))
+            .order_by(InstagramPost.posted_at.desc())
+            .limit(40)
+            .all()
+        )
+        past_captions = [p.caption for p in past_posts if p.caption and p.caption.strip()]
+
+    context = CaptionContext(
+        image_path=upload_path(image.storage_key),
+        brightness=latest_analysis.brightness if latest_analysis else None,
+        contrast=latest_analysis.contrast if latest_analysis else None,
+        dominant_colors=(
+            [c["hex"] for c in latest_analysis.dominant_colors] if latest_analysis else None
+        ),
+        face_count=latest_analysis.face_count if latest_analysis else 0,
+        past_captions=past_captions,
+    )
+
+    try:
+        options = generate_captions(context)
+    except CaptionsNotConfiguredError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except anthropic.APIStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Caption generation failed: {exc.message}",
+        )
+    except anthropic.APIConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the caption service. Check the server's network access.",
+        )
+
+    saved = []
+    for option in options:
+        record = GeneratedCaption(
+            image_id=image.id,
+            model_name=settings.CAPTION_MODEL,
+            caption_text=option.text,
+            approach=option.approach,
+        )
+        db.add(record)
+        saved.append(record)
+    db.commit()
+    for record in saved:
+        db.refresh(record)
+
+    return GenerateCaptionsResponse(
+        captions=[CaptionOptionRead.model_validate(r) for r in saved],
+        note=CAPTION_NOTE,
+    )

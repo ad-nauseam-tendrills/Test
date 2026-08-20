@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     # Where to send the browser after an OAuth callback completes.
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # --- Caption generation (optional) ---
+    # Claude API key, used only by the caption-suggestion feature. When
+    # unset, that endpoint returns a clear "not configured" error and the
+    # rest of the app is unaffected. NEVER commit a real key.
+    ANTHROPIC_API_KEY: str | None = None
+    CAPTION_MODEL: str = "claude-opus-5"
+
     # --- File storage ---
     # Defaults are relative to the backend/ working directory for local,
     # non-Docker development. docker-compose.yml overrides these to

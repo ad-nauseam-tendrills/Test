@@ -32,6 +32,27 @@ CAPTION_SNIPPETS = [
     "Process shot -- more of these coming if people want them.",
 ]
 
+# Hashtag sets an artist might habitually reach for. A few appear often
+# and a few rarely, so the hashtag analytics have both well-sampled and
+# thin tags to distinguish -- which is the interesting case to demo.
+HASHTAG_POOL = [
+    ["#studiopractice", "#worksonpaper"],
+    ["#filmphotography", "#35mm"],
+    ["#studiopractice"],
+    ["#contemporaryart", "#abstractpainting"],
+    ["#filmphotography"],
+    ["#naturalight"],
+    [],
+    ["#studiopractice", "#contemporaryart"],
+]
+
+def _compose_caption(rng: random.Random) -> str:
+    """A caption plus the artist's habitual hashtags, as a real post would carry."""
+    body = rng.choice(CAPTION_SNIPPETS)
+    tags = rng.choice(HASHTAG_POOL)
+    return f"{body} {' '.join(tags)}".strip() if tags else body
+
+
 # Deterministic placeholder image URLs (picsum supports fixed seeds).
 def _placeholder_url(seed: str, width: int = 1080, height: int = 1350) -> str:
     return f"https://picsum.photos/seed/{seed}/{width}/{height}"
@@ -94,7 +115,7 @@ class MockInstagramProvider(InstagramProvider):
                 ProviderMedia(
                     ig_media_id=ig_media_id,
                     media_type=media_type,
-                    caption=rng.choice(CAPTION_SNIPPETS),
+                    caption=_compose_caption(rng),
                     media_url=_placeholder_url(ig_media_id),
                     permalink=f"https://instagram.com/p/{ig_media_id}",
                     thumbnail_url=_placeholder_url(ig_media_id, 320, 400),

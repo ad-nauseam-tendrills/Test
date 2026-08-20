@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { MetricsGrid } from "@/components/post/MetricsGrid";
 import { RecommendationsList } from "@/components/post/RecommendationsList";
 import { BeforeAfter } from "@/components/post/BeforeAfter";
+import { CaptionSuggestions } from "@/components/post/CaptionSuggestions";
 import { ScoreSummary, ScoreExplanations } from "@/components/post/ScoreSummary";
 import { api, ApiError, fileUrl } from "@/lib/api";
 import { ImageDetail } from "@/types";
@@ -105,6 +106,8 @@ function PostDetailContent() {
               <RecommendationsList recommendations={recommendations} />
             </div>
           </div>
+
+          <CaptionSuggestions imageId={image.id} />
 
           {scores && (
             <Card>

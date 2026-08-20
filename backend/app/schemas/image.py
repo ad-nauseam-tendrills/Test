@@ -106,3 +106,18 @@ class GenerateVariantRequest(BaseModel):
     artwork_integrity_mode: bool = True
     # Allow the user to accept/override individual recommended adjustments.
     overrides: AdjustmentValues | None = None
+
+
+class CaptionOptionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    caption_text: str
+    approach: str | None = None
+
+
+class GenerateCaptionsResponse(BaseModel):
+    captions: list[CaptionOptionRead]
+    # Shown with the suggestions so they read as a creative starting
+    # point rather than a performance recommendation.
+    note: str
