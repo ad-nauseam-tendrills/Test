@@ -36,8 +36,8 @@ backend/
       image_analysis/    # Pillow/OpenCV measurable-property extraction
       image_processing/  # Artwork Integrity optimization engine
       recommendations/   # rule-based recommendations + heuristic scoring
-      captions/          # Claude-backed caption suggestions
-    tests/                # pytest suite (174 tests)
+      captions/          # caption suggestions (Anthropic or OpenAI)
+    tests/                # pytest suite (182 tests)
   alembic/                # migrations
   scripts/                # seed_mock_data.py, purge_mock_data.py (dev only)
 frontend/
@@ -199,9 +199,10 @@ pip install -r requirements.txt
 pytest
 ```
 
-174 tests cover image-metric extraction, normalization math, engagement
+182 tests cover image-metric extraction, normalization math, engagement
 calculations, recommendation rules, hashtag analysis, audience timezone
-weighting, caption-feature bucketing, caption generation, both Instagram
+weighting, caption-feature bucketing, caption generation on both model
+providers, both Instagram
 providers, and the full API (auth, account connect/import, dashboard,
 OAuth callback security, upload → analyze → optimize).
 
@@ -330,12 +331,30 @@ Two assistive features, both built to the same rule as the scores: they
 describe and suggest, they never predict.
 
 **Caption suggestions** (post detail page) send the image and a sample of
-the artist's own past captions to Claude, and return three options in
-that artist's voice. The model is instructed never to promise reach or
+the artist's own past captions to a vision model, and return three options
+in that artist's voice. The model is instructed never to promise reach or
 likes, never to use engagement bait ("double tap if…", "save this"), and
-never to invent facts about the work. Requires `ANTHROPIC_API_KEY` in
-`backend/.env`; without it the endpoint returns a clear "not configured"
-message and nothing else in the app is affected.
+never to invent facts about the work.
+
+Either Anthropic or OpenAI can serve this, selected with
+`CAPTION_PROVIDER` in `backend/.env`:
+
+| `CAPTION_PROVIDER` | Key | Model setting |
+| --- | --- | --- |
+| `anthropic` (default) | `ANTHROPIC_API_KEY` | `CAPTION_MODEL` |
+| `openai` | `OPENAI_API_KEY` | `OPENAI_CAPTION_MODEL` |
+
+Only the selected provider's key is needed. Both paths send the same
+prompt and the same response schema, so the rest of the app cannot tell
+which one answered; the model that actually wrote each caption is stored
+on the row, so switching providers does not relabel old suggestions. The
+model must be vision-capable — the prompt sends the image itself. Without
+a key the endpoint returns a clear "not configured" message and nothing
+else in the app is affected.
+
+Both vendor SDKs are imported lazily and their errors are translated into
+`CaptionProviderError` inside the caption service, so no route imports a
+vendor SDK and the unused package can be removed from a slim deployment.
 
 **Audience timing** (dashboard) uses Meta's `follower_demographics`
 insight to map followers to countries, then reports what fraction of them
@@ -457,7 +476,7 @@ publishing), `PostOutcome` (future predicted-vs-actual tracking),
 - The Meta integration is covered by tests with mocked HTTP; it has not
   been exercised against live Meta credentials.
 - **Caption suggestions cost money per call** and are not cached — each
-  press of "Suggest captions" is a fresh Claude API request. Fine at
+  press of "Suggest captions" is a fresh model API request. Fine at
   personal scale; add caching before exposing it to many users.
 - **Caption quality depends on having past captions.** With no connected
   account, the model infers a generic artist voice rather than yours.

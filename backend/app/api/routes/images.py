@@ -3,8 +3,6 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-import anthropic
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -43,7 +41,9 @@ from app.schemas.image import (
 from app.services.analytics.dashboard import build_dashboard
 from app.services.captions.generator import (
     CaptionContext,
+    CaptionProviderError,
     CaptionsNotConfiguredError,
+    active_caption_model,
     generate_captions,
 )
 from app.services.image_analysis.metrics import analyze_image
@@ -440,22 +440,19 @@ def generate_image_captions(
         options = generate_captions(context)
     except CaptionsNotConfiguredError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except anthropic.APIStatusError as exc:
+    except CaptionProviderError as exc:
+        # Provider-neutral: the caption service translates each vendor's
+        # SDK errors, so this route stays free of vendor imports.
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Caption generation failed: {exc.message}",
-        )
-    except anthropic.APIConnectionError:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not reach the caption service. Check the server's network access.",
+            detail=f"Caption generation failed: {exc}",
         )
 
     saved = []
     for option in options:
         record = GeneratedCaption(
             image_id=image.id,
-            model_name=settings.CAPTION_MODEL,
+            model_name=active_caption_model(),
             caption_text=option.text,
             approach=option.approach,
         )

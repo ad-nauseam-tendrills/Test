@@ -1,7 +1,7 @@
 """
 Caption generator tests.
 
-The Anthropic client is stubbed throughout -- these tests never make a
+Both vendor clients are stubbed throughout -- these tests never make a
 network call and never need a real API key.
 """
 import io
@@ -16,10 +16,13 @@ from app.services.captions.generator import (
     MAX_IMAGE_EDGE,
     CaptionContext,
     CaptionOption,
+    CaptionProviderError,
     CaptionsNotConfiguredError,
     CaptionSuggestions,
+    _build_openai_input,
     _build_user_content,
     _encode_image,
+    active_caption_model,
     generate_captions,
 )
 
@@ -36,6 +39,7 @@ def sample_image(tmp_path):
 
 
 def test_raises_clearly_without_api_key(monkeypatch, sample_image):
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "anthropic")
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
     with pytest.raises(CaptionsNotConfiguredError) as exc:
         generate_captions(CaptionContext(image_path=sample_image))
@@ -138,8 +142,11 @@ def _stub_response(options, stop_reason="end_turn"):
 
 def _install_stub(monkeypatch, response):
     stub = _StubClient(response)
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "anthropic")
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr("app.services.captions.generator.anthropic.Anthropic", lambda **_: stub)
+    # The generator imports the SDK lazily, so patch the module attribute
+    # it looks up rather than a name bound at import time.
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_: stub)
     return stub
 
 
@@ -185,3 +192,139 @@ def test_system_prompt_forbids_engagement_claims():
     lowered = SYSTEM_PROMPT.lower()
     assert "never promise or imply reach, likes, or follower growth" in lowered
     assert "no engagement bait" in lowered
+
+
+# --- OpenAI provider -----------------------------------------------------
+#
+# The point of these is that swapping CAPTION_PROVIDER changes only which
+# API is called -- the prompt, the schema, and the returned options stay
+# identical, so the rest of the app cannot tell the difference.
+
+
+class _StubResponses:
+    def __init__(self, response):
+        self._response = response
+        self.captured = {}
+
+    def parse(self, **kwargs):
+        self.captured.update(kwargs)
+        return self._response
+
+
+class _StubOpenAIClient:
+    def __init__(self, response):
+        self.responses = _StubResponses(response)
+
+
+def _openai_response(options, refusal=None):
+    output = []
+    if refusal is not None:
+        output = [SimpleNamespace(content=[SimpleNamespace(type="refusal", refusal=refusal)])]
+    return SimpleNamespace(
+        output_parsed=CaptionSuggestions(options=options) if options is not None else None,
+        output=output,
+    )
+
+
+def _install_openai_stub(monkeypatch, response):
+    stub = _StubOpenAIClient(response)
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("openai.OpenAI", lambda **_: stub)
+    return stub
+
+
+def test_openai_provider_returns_the_same_option_shape(monkeypatch, sample_image):
+    _install_openai_stub(
+        monkeypatch,
+        _openai_response(
+            [
+                CaptionOption(text="Low light, long wait.", approach="quiet observation"),
+                CaptionOption(text="Fourth attempt at this frame.", approach="process note"),
+            ]
+        ),
+    )
+
+    options = generate_captions(CaptionContext(image_path=sample_image))
+
+    assert [o.text for o in options] == ["Low light, long wait.", "Fourth attempt at this frame."]
+    assert options[0].approach == "quiet observation"
+
+
+def test_openai_request_carries_the_image_schema_and_model(monkeypatch, sample_image):
+    monkeypatch.setattr(settings, "OPENAI_CAPTION_MODEL", "test-vision-model")
+    stub = _install_openai_stub(monkeypatch, _openai_response([CaptionOption(text="x", approach="y")]))
+
+    generate_captions(CaptionContext(image_path=sample_image))
+
+    captured = stub.responses.captured
+    assert captured["model"] == "test-vision-model"
+    assert captured["text_format"] is CaptionSuggestions
+    # The same schema and system prompt as the Anthropic path.
+    assert "Never promise or imply reach" in captured["instructions"]
+    parts = captured["input"][0]["content"]
+    assert parts[0]["type"] == "input_image"
+    assert parts[0]["image_url"].startswith("data:image/jpeg;base64,")
+    assert parts[1]["type"] == "input_text"
+
+
+def test_openai_missing_key_is_reported_clearly(monkeypatch, sample_image):
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
+    with pytest.raises(CaptionsNotConfiguredError) as exc:
+        generate_captions(CaptionContext(image_path=sample_image))
+    assert "OPENAI_API_KEY" in str(exc.value)
+
+
+def test_openai_refusal_is_not_reported_as_empty(monkeypatch, sample_image):
+    """
+    OpenAI returns a refusal as a content part with output_parsed=None.
+    Reporting that as "no captions" would hide why nothing came back.
+    """
+    _install_openai_stub(monkeypatch, _openai_response(None, refusal="I can't help with that."))
+    with pytest.raises(CaptionsNotConfiguredError) as exc:
+        generate_captions(CaptionContext(image_path=sample_image))
+    assert "declined" in str(exc.value)
+
+
+def test_openai_api_error_becomes_provider_error(monkeypatch, sample_image):
+    """Vendor SDK errors must not escape into the route layer."""
+    import openai
+
+    class _Failing:
+        def parse(self, **_):
+            raise openai.APIConnectionError(request=None)
+
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "openai.OpenAI", lambda **_: SimpleNamespace(responses=_Failing())
+    )
+
+    with pytest.raises(CaptionProviderError) as exc:
+        generate_captions(CaptionContext(image_path=sample_image))
+    assert "OpenAI" in str(exc.value)
+
+
+def test_unknown_provider_is_rejected(monkeypatch, sample_image):
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "gemini")
+    with pytest.raises(CaptionsNotConfiguredError) as exc:
+        generate_captions(CaptionContext(image_path=sample_image))
+    assert "gemini" in str(exc.value)
+
+
+def test_active_caption_model_follows_the_provider(monkeypatch):
+    monkeypatch.setattr(settings, "CAPTION_MODEL", "claude-test")
+    monkeypatch.setattr(settings, "OPENAI_CAPTION_MODEL", "openai-test")
+
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "anthropic")
+    assert active_caption_model() == "claude-test"
+    monkeypatch.setattr(settings, "CAPTION_PROVIDER", "openai")
+    assert active_caption_model() == "openai-test"
+
+
+def test_both_providers_send_identical_prompt_text(sample_image):
+    context = CaptionContext(image_path=sample_image, past_captions=["a quiet one"])
+    anthropic_text = _build_user_content(context)[1]["text"]
+    openai_text = _build_openai_input(context)[0]["content"][1]["text"]
+    assert anthropic_text == openai_text

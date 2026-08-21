@@ -72,11 +72,21 @@ class Settings(BaseSettings):
     SINGLE_USER_EMAIL: str | None = None
 
     # --- Caption generation (optional) ---
-    # Claude API key, used only by the caption-suggestion feature. When
-    # unset, that endpoint returns a clear "not configured" error and the
-    # rest of the app is unaffected. NEVER commit a real key.
+    # Which model vendor writes caption suggestions: "anthropic" or
+    # "openai". Only the selected one's key is needed; when it is unset,
+    # that endpoint returns a clear "not configured" error and the rest
+    # of the app is unaffected. NEVER commit a real key.
+    CAPTION_PROVIDER: str = "anthropic"
+
     ANTHROPIC_API_KEY: str | None = None
     CAPTION_MODEL: str = "claude-opus-5"
+
+    OPENAI_API_KEY: str | None = None
+    # Override this to whatever your account has access to -- an unknown
+    # model id surfaces as a clear error from OpenAI rather than a silent
+    # failure. Must be a vision-capable model: the caption prompt sends
+    # the image itself.
+    OPENAI_CAPTION_MODEL: str = "gpt-5.2"
 
     # --- File storage ---
     # Defaults are relative to the backend/ working directory for local,
