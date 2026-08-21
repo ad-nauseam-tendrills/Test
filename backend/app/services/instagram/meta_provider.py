@@ -86,6 +86,18 @@ MEDIA_INSIGHT_METRICS = {
     "CAROUSEL_ALBUM": ["reach", "saved", "shares", "likes", "comments", "views"],
 }
 
+# Meta has repeatedly changed which metrics apply to which media type, and
+# one unsupported name fails the entire request -- which would leave the
+# post with no `reach`, and therefore no denominator for any engagement
+# rate, so it would vanish from every dashboard average. Rather than
+# guess at the current matrix, narrow the request and retry: `reach` alone
+# is supported for every media type and is the one metric the analytics
+# layer cannot work without.
+MEDIA_INSIGHT_FALLBACKS = [
+    ["reach", "saved", "shares"],
+    ["reach"],
+]
+
 REQUEST_TIMEOUT_SECONDS = 20.0
 
 
@@ -122,8 +134,8 @@ class MetaInstagramProvider(InstagramProvider):
         if not (self.app_id and self.app_secret and self.redirect_uri):
             raise MetaCredentialsMissingError(
                 "Meta credentials are not configured. Set META_APP_ID, "
-                "META_APP_SECRET and META_REDIRECT_URI to use the live "
-                "Instagram integration, or use INSTAGRAM_PROVIDER=mock."
+                "META_APP_SECRET and META_REDIRECT_URI in backend/.env to "
+                "connect an Instagram account."
             )
 
     def _http(self) -> httpx.Client:
@@ -335,21 +347,31 @@ class MetaInstagramProvider(InstagramProvider):
     ) -> ProviderMediaInsights:
         self._require_credentials()
         token = self._token(access_token)
-        metrics = MEDIA_INSIGHT_METRICS.get(media_type, MEDIA_INSIGHT_METRICS["IMAGE"])
+        preferred = MEDIA_INSIGHT_METRICS.get(media_type, MEDIA_INSIGHT_METRICS["IMAGE"])
 
-        try:
-            payload = self._request(
-                "GET",
-                self._graph_url(f"{ig_media_id}/insights"),
-                params={"metric": ",".join(metrics), "access_token": token},
-            )
-        except MetaApiError as exc:
-            # Insights are unavailable for some media (e.g. posts older
-            # than the insights window, or media published before the
+        payload = None
+        for metrics in [preferred, *MEDIA_INSIGHT_FALLBACKS]:
+            try:
+                payload = self._request(
+                    "GET",
+                    self._graph_url(f"{ig_media_id}/insights"),
+                    params={"metric": ",".join(metrics), "access_token": token},
+                )
+                break
+            except MetaApiError as exc:
+                logger.warning(
+                    "Insights request for media %s failed with metrics %s: %s",
+                    ig_media_id,
+                    ",".join(metrics),
+                    exc,
+                )
+
+        if payload is None:
+            # Insights are genuinely unavailable for some media (posts
+            # older than the insights window, or published before the
             # account became professional). A post without insights is
             # still worth importing, so degrade rather than fail the
             # whole import.
-            logger.warning("Insights unavailable for media %s: %s", ig_media_id, exc)
             return ProviderMediaInsights()
 
         values: dict[str, int] = {}

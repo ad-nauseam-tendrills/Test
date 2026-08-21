@@ -332,6 +332,62 @@ def test_missing_insights_degrade_instead_of_failing_import(configured_provider)
 
 
 @respx.mock
+def test_unsupported_metric_falls_back_to_a_narrower_request(configured_provider):
+    """
+    Meta fails the whole insights call if one metric name is invalid for
+    the media type. Losing `reach` that way would leave the post with no
+    denominator for any engagement rate, so it would silently drop out of
+    every dashboard average -- the provider must narrow and retry instead.
+    """
+    requested: list[str] = []
+
+    def _insights(request: httpx.Request) -> httpx.Response:
+        metric = parse_qs(request.url.query.decode())["metric"][0]
+        requested.append(metric)
+        if "views" in metric:
+            return httpx.Response(
+                400,
+                json={"error": {"message": "(#100) metric[0] must be a valid insights metric"}},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"name": "reach", "values": [{"value": 900}]},
+                    {"name": "saved", "values": [{"value": 30}]},
+                ]
+            },
+        )
+
+    respx.get(f"{GRAPH_BASE_URL}/v23.0/media-9/insights").mock(side_effect=_insights)
+
+    insights = configured_provider.get_media_insights(
+        "media-9", access_token="tok", media_type="CAROUSEL_ALBUM"
+    )
+
+    assert insights.reach == 900
+    assert insights.saves == 30
+    # Full set first, then the narrower one -- and it stops as soon as a
+    # request succeeds rather than walking every tier.
+    assert len(requested) == 2
+    assert "views" in requested[0]
+    assert requested[1] == "reach,saved,shares"
+
+
+@respx.mock
+def test_insights_give_up_after_every_fallback_fails(configured_provider):
+    calls = respx.get(url__regex=rf"{GRAPH_BASE_URL}/v23\.0/media-x/insights").mock(
+        return_value=httpx.Response(400, json={"error": {"message": "no insights"}})
+    )
+
+    insights = configured_provider.get_media_insights("media-x", access_token="tok")
+
+    assert insights.reach is None
+    # Preferred set plus each fallback tier, then it stops.
+    assert calls.call_count == 3
+
+
+@respx.mock
 def test_account_insights_returns_empty_on_error(configured_provider):
     respx.get(f"{GRAPH_BASE_URL}/v23.0/me/insights").mock(
         return_value=httpx.Response(400, json={"error": {"message": "no data"}})

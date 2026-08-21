@@ -227,6 +227,60 @@ def test_meta_callback_rejects_forged_state(client):
     assert "expired" in resp.headers["location"]
 
 
+def test_meta_callback_success_carries_the_account_id(client, monkeypatch, db_session):
+    """
+    The settings page uses account_id to import the post history right
+    after connecting. Without it the user lands on a connected account
+    with an empty dashboard and no obvious next step.
+    """
+    import uuid as _uuid
+
+    from app.core.config import settings
+    from app.core.security import create_access_token
+    from app.models.user import User
+    from app.services.instagram.base import ProviderAccount
+
+    monkeypatch.setattr(settings, "META_APP_ID", "ig-app-id")
+    monkeypatch.setattr(settings, "META_APP_SECRET", "ig-secret")
+    monkeypatch.setattr(settings, "META_REDIRECT_URI", "https://example.test/cb")
+
+    headers = _auth_headers(client, "callbackuser@example.com")
+    user_id = client.get("/api/v1/auth/me", headers=headers).json()["id"]
+
+    monkeypatch.setattr(
+        "app.api.routes.accounts.MetaInstagramProvider.authenticate",
+        lambda self, code: ProviderAccount(
+            ig_user_id="17841400000000000",
+            username="realartist",
+            account_type="BUSINESS",
+            profile_picture_url=None,
+            follower_count=1234,
+            access_token="long-lived-token",
+        ),
+    )
+
+    state = create_access_token(subject=user_id, expires_minutes=15)
+    resp = client.get(
+        f"/api/v1/accounts/meta/callback?code=abc&state={state}", follow_redirects=False
+    )
+
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert "instagram=connected" in location
+    assert "account_id=" in location
+
+    accounts = client.get("/api/v1/accounts", headers=headers).json()
+    assert len(accounts) == 1
+    assert accounts[0]["username"] == "realartist"
+    assert accounts[0]["provider"] == "meta"
+    # The redirect must name the account that was actually stored.
+    assert f"account_id={accounts[0]['id']}" in location
+    # Tokens are never handed back through the browser.
+    assert "long-lived-token" not in location
+    assert "access_token" not in accounts[0]
+    assert _uuid.UUID(accounts[0]["id"])
+
+
 def test_meta_callback_surfaces_user_denial(client):
     """User clicking 'Cancel' on Instagram's consent screen."""
     resp = client.get(

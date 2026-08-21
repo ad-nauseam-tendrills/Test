@@ -3,14 +3,22 @@ Seed the database with a demo user, a connected mock Instagram account, and
 60 historical posts (well above the 30-post minimum requested for a
 meaningful dashboard).
 
+This is demo data. It is for local development and for screenshots --
+never for a deployment someone actually uses, where it silently fills the
+dashboard with posts they never made. The script refuses to run unless
+ENABLE_MOCK_PROVIDER is on, for the same reason /accounts/connect does.
+
 Usage (from backend/):
-    python -m scripts.seed_mock_data
+    ENABLE_MOCK_PROVIDER=true python -m scripts.seed_mock_data
+
+To undo it: python -m scripts.purge_mock_data
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.db.all_models import Base
 from app.db.session import SessionLocal, engine
@@ -25,6 +33,15 @@ DEMO_PASSWORD = "demo12345"
 
 
 def run():
+    if not settings.ENABLE_MOCK_PROVIDER:
+        print(
+            "Refusing to seed: ENABLE_MOCK_PROVIDER is not enabled.\n"
+            "This script fabricates 60 synthetic posts, which must never end up "
+            "in a real account's dashboard. Re-run with ENABLE_MOCK_PROVIDER=true "
+            "if you genuinely want demo data."
+        )
+        raise SystemExit(1)
+
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:

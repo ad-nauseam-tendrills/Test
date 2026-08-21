@@ -31,15 +31,15 @@ backend/
     models/              # ORM models (see Data model below)
     schemas/             # Pydantic request/response models
     services/
-      instagram/         # InstagramProvider abstraction (mock + Meta placeholder)
+      instagram/         # InstagramProvider abstraction (Meta + dev-only mock)
       analytics/         # engagement, normalization, timing, audience, captions
       image_analysis/    # Pillow/OpenCV measurable-property extraction
       image_processing/  # Artwork Integrity optimization engine
       recommendations/   # rule-based recommendations + heuristic scoring
       captions/          # Claude-backed caption suggestions
-    tests/                # pytest suite (166 tests)
+    tests/                # pytest suite (174 tests)
   alembic/                # migrations
-  scripts/seed_mock_data.py
+  scripts/                # seed_mock_data.py, purge_mock_data.py (dev only)
 frontend/
   app/                    # /login /dashboard /history /upload /post/[id] /settings
   components/
@@ -71,15 +71,35 @@ paths), so the same file works for Docker and for local development.
 
 The backend container runs `alembic upgrade head` automatically on startup.
 
-To load a demo account with 60 realistic historical posts:
+Then open the app and use **Connect Instagram** (on the dashboard, or on
+the settings page) to connect a real account — see
+[Connecting a real Instagram account](#connecting-a-real-instagram-account)
+for the Meta app setup that requires.
+
+### Demo data (development only)
+
+There is a mock provider that fabricates 60 realistic historical posts
+locally, for working on the analytics and UI without a Meta app. It is
+**off by default**, because on a real deployment it fills the dashboard
+with posts the owner never made and skews every recommendation derived
+from them:
 
 ```bash
-docker compose exec backend python -m scripts.seed_mock_data
+# Enable it in backend/.env: ENABLE_MOCK_PROVIDER=true
+docker compose exec backend env ENABLE_MOCK_PROVIDER=true \
+  python -m scripts.seed_mock_data
 ```
 
-This prints a demo login (`demo@artstudio.example` / `demo12345`). Log in
-with those credentials, or register your own account and connect a mock
-Instagram account from the dashboard.
+To undo it — including on a deployment that was seeded before a real
+account was connected:
+
+```bash
+docker compose exec backend python -m scripts.purge_mock_data
+docker compose exec backend python -m scripts.purge_mock_data --user  # also drop the demo user
+```
+
+Individual accounts can also be removed from the settings page with
+**Remove**, which deletes the account and every post imported from it.
 
 ## Deploying to a single VM
 
@@ -156,7 +176,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # edit DATABASE_URL to point at your local Postgres
 alembic upgrade head
-python -m scripts.seed_mock_data   # optional
+ENABLE_MOCK_PROVIDER=true python -m scripts.seed_mock_data   # optional demo data
 uvicorn app.main:app --reload
 ```
 
@@ -179,7 +199,7 @@ pip install -r requirements.txt
 pytest
 ```
 
-166 tests cover image-metric extraction, normalization math, engagement
+174 tests cover image-metric extraction, normalization math, engagement
 calculations, recommendation rules, hashtag analysis, audience timezone
 weighting, caption-feature bucketing, caption generation, both Instagram
 providers, and the full API (auth, account connect/import, dashboard,
@@ -192,12 +212,10 @@ target with `TEST_DATABASE_URL`, never `DATABASE_URL`.
 
 ## Core user flow
 
-1. Register/log in.
-2. Connect an Instagram account — either the real Meta integration
-   ("Connect Instagram") or the **mock provider**
-   (`app/services/instagram/mock_provider.py`), which generates realistic,
-   deterministic synthetic post history locally and needs no credentials.
-   Instagram is never scraped either way.
+1. Register/log in (or skip this entirely with
+   [single-user mode](#single-user-mode)).
+2. Connect an Instagram account with **Connect Instagram**, which runs the
+   real Meta OAuth flow. Instagram is never scraped.
 3. Import historical posts (post ID, timestamp, media type, caption, media
    URL, likes/comments/saves/shares, reach, impressions, profile visits,
    follower count at posting time).
@@ -223,15 +241,17 @@ target with `TEST_DATABASE_URL`, never `DATABASE_URL`.
 (`authenticate`, `get_account`, `get_media`, `get_media_insights`,
 `get_account_insights`). Two implementations exist, and both are usable:
 
+- **`MetaInstagramProvider`** — the real Instagram Graph API integration,
+  using the **Instagram API with Instagram Login** flow. This is what the
+  **"Connect Instagram"** button uses, and the only provider reachable
+  from the UI. Instagram is never scraped; only documented API endpoints
+  are called.
 - **`MockInstagramProvider`** — generates deterministic, realistic
   historical post data locally (60 posts per account, varied media types,
   engagement patterns that vary by day/hour so the analytics layer has
-  real patterns to find). No network calls, no credentials. This is what
-  the **"Use demo data"** button connects.
-- **`MetaInstagramProvider`** — the real Instagram Graph API integration,
-  using the **Instagram API with Instagram Login** flow. This is what the
-  **"Connect Instagram"** button uses. Instagram is never scraped; only
-  documented API endpoints are called.
+  real patterns to find). No network calls, no credentials. It exists for
+  tests and local development, is gated behind `ENABLE_MOCK_PROVIDER`, and
+  has no button in the UI.
 
 ### Connecting a real Instagram account
 
@@ -287,9 +307,12 @@ the browser to `/settings`. Long-lived tokens can be extended before
 expiry via `MetaInstagramProvider.refresh_long_lived_token()`; once
 expired, the user must reconnect.
 
-`INSTAGRAM_PROVIDER` sets the default provider for `POST /accounts/connect`,
-but the two buttons in the UI select their provider explicitly, so the
-mock path stays available for demos regardless of that setting.
+`POST /accounts/connect` is the direct, non-OAuth path, used by the mock
+provider and by tests. It rejects `provider: "mock"` unless
+`ENABLE_MOCK_PROVIDER` is set, so synthetic posts can never reach a real
+deployment's dashboard by accident. `INSTAGRAM_PROVIDER` only supplies its
+default provider name; accounts connected through OAuth are stored as
+`meta` and always use the real API.
 
 ## Artwork Integrity mode
 
@@ -349,6 +372,12 @@ removes the login screen: every request resolves to one owner account.
 Leave `SINGLE_USER_EMAIL` blank and it adopts the oldest existing
 account, so an already-running deployment keeps its connected Instagram
 account and imported history.
+
+Note the corollary: on a deployment that was ever seeded with demo data,
+the oldest account *is* the demo user, so single-user mode adopts it and
+the dashboard opens full of synthetic posts. Clear it with
+`python -m scripts.purge_mock_data --user` — with no accounts left, the
+next request creates a fresh `owner@example.com` instead.
 
 **This is not access control.** It makes every visitor the owner, and the
 upload endpoint accepts files from anyone who can reach it. Only enable

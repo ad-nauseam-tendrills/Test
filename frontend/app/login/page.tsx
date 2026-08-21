@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api";
 
 export default function LoginPage() {
-  const { login, register } = useAuth();
+  const { user, loading, login, register } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -15,6 +15,22 @@ export default function LoginPage() {
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // In single-user mode the backend resolves the owner without a login,
+  // so /auth/me already succeeded and there is nothing to sign in to.
+  // Anyone who lands here -- a bookmark, a stale redirect -- goes straight
+  // to the dashboard rather than being shown a form that does nothing.
+  useEffect(() => {
+    if (!loading && user) router.replace("/dashboard");
+  }, [loading, user, router]);
+
+  if (loading || user) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-stone-400">
+        Loading…
+      </div>
+    );
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -98,12 +114,6 @@ export default function LoginPage() {
       >
         {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
       </button>
-
-      <div className="mt-10 rounded-xl bg-stone-100 px-4 py-3 text-xs text-stone-500">
-        Demo credentials (after seeding): <br />
-        <span className="text-stone-700">demo@artstudio.example</span> /{" "}
-        <span className="text-stone-700">demo12345</span>
-      </div>
     </div>
   );
 }

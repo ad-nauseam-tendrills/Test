@@ -29,9 +29,17 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
     # --- Instagram / Meta integration ---
-    # Which provider implementation to use. "mock" requires no credentials
-    # and is the default for local development / MVP demos.
+    # Default provider for the direct POST /accounts/connect path only.
+    # Accounts connected through the OAuth flow are stored as "meta" and
+    # always use the real API regardless of this value.
     INSTAGRAM_PROVIDER: str = "mock"
+
+    # The mock provider fabricates 60 synthetic posts. That is useful for
+    # tests and local development and actively harmful on a real
+    # deployment, where it silently fills the dashboard with data the
+    # user never posted. Connecting a mock account is refused unless this
+    # is explicitly enabled.
+    ENABLE_MOCK_PROVIDER: bool = False
 
     # Real Meta credentials (only required when INSTAGRAM_PROVIDER=meta).
     # These are the **Instagram** App ID/Secret found under the Meta app's

@@ -100,6 +100,17 @@ def connect_account(
     trip. For the real Meta provider, use /accounts/meta/authorize-url and
     let the browser complete the OAuth flow instead.
     """
+    if payload.provider == "mock" and not settings.ENABLE_MOCK_PROVIDER:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The mock provider is disabled. It generates synthetic posts and "
+                "must never populate a real account's dashboard. Use "
+                "/accounts/meta/authorize-url to connect a real Instagram account, "
+                "or set ENABLE_MOCK_PROVIDER=true for local development."
+            ),
+        )
+
     provider = get_provider(payload.provider)
     try:
         provider_account = provider.authenticate(payload.authorization_code)
@@ -144,9 +155,14 @@ def meta_callback(
     identity comes solely from the signed `state` token issued above.
     """
 
-    def _redirect(status_value: str, message: str) -> RedirectResponse:
-        query = urlencode({"instagram": status_value, "message": message})
-        return RedirectResponse(url=f"{settings.FRONTEND_URL}/settings?{query}")
+    def _redirect(status_value: str, message: str, account_id: str | None = None) -> RedirectResponse:
+        params = {"instagram": status_value, "message": message}
+        if account_id:
+            # Lets the settings page pull the post history straight away.
+            # A freshly connected account has no posts, and an empty
+            # dashboard right after connecting reads as a broken app.
+            params["account_id"] = account_id
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/settings?{urlencode(params)}")
 
     if error:
         return _redirect("error", error_description or error)
@@ -172,7 +188,7 @@ def meta_callback(
         return _redirect("error", str(exc))
 
     account = _upsert_account(db, user, "meta", provider_account)
-    return _redirect("connected", f"Connected @{account.username}.")
+    return _redirect("connected", f"Connected @{account.username}.", account_id=str(account.id))
 
 
 @router.post("/{account_id}/disconnect", response_model=InstagramAccountRead)
@@ -184,6 +200,23 @@ def disconnect_account(
     db.commit()
     db.refresh(account)
     return account
+
+
+@router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(
+    account_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    """
+    Permanently remove a connected account and every post imported from
+    it. Distinct from /disconnect, which only clears the active flag and
+    leaves the history in place -- this is the way to clear out data that
+    should never have been there, such as a demo import.
+    """
+    account = _get_owned_account(db, account_id, current_user)
+    # Posts (and their metrics, via cascade) go with the account.
+    db.delete(account)
+    db.commit()
+    return None
 
 
 @router.post("/{account_id}/sync-demographics", response_model=InstagramAccountRead)

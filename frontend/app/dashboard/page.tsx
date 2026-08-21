@@ -41,20 +41,20 @@ function DashboardContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function connectAccount() {
+  async function connectInstagram() {
     setBusy(true);
     setMessage(null);
     try {
-      const acc = await api.post<InstagramAccount>("/accounts/connect", { provider: "mock" });
-      setAccount(acc);
-      const result = await api.post<{ imported_count: number; skipped_count: number }>(
-        `/accounts/${acc.id}/import`
+      const { authorize_url } = await api.get<{ authorize_url: string }>(
+        "/accounts/meta/authorize-url"
       );
-      setMessage(`Imported ${result.imported_count} historical posts.`);
-      await load();
+      // Full-page navigation: Instagram's consent screen refuses to render
+      // in an iframe, and the OAuth redirect must land on the backend.
+      window.location.href = authorize_url;
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Failed to connect account.");
-    } finally {
+      setMessage(
+        err instanceof ApiError ? err.message : "Could not start the Instagram connection flow."
+      );
       setBusy(false);
     }
   }
@@ -82,15 +82,18 @@ function DashboardContent() {
 
   if (!account) {
     return (
-      <EmptyState
-        title="Connect an Instagram account to get started"
-        description="Aperture uses a mock Instagram integration in development, so you can explore the full experience without real Meta credentials."
-        action={
-          <Button onClick={connectAccount} disabled={busy}>
-            {busy ? "Connecting…" : "Connect Instagram (mock)"}
-          </Button>
-        }
-      />
+      <div className="flex flex-col items-center gap-4">
+        <EmptyState
+          title="Connect your Instagram account to get started"
+          description="Aperture reads your post history and insights through the official Instagram API so it can show you what has actually worked on your account. You'll need an Instagram professional (Creator or Business) account."
+          action={
+            <Button onClick={connectInstagram} disabled={busy}>
+              {busy ? "Opening Instagram…" : "Connect Instagram"}
+            </Button>
+          }
+        />
+        {message && <p className="max-w-md text-center text-sm text-red-700">{message}</p>}
+      </div>
     );
   }
 

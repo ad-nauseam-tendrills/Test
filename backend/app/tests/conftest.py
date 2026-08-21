@@ -15,6 +15,10 @@ DEFAULT_TEST_DATABASE_URL = (
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
 os.environ["UPLOAD_DIR"] = "/tmp/instaopt_test_uploads"
 os.environ["VARIANT_DIR"] = "/tmp/instaopt_test_variants"
+# Most tests connect an account through the mock provider, which is
+# refused by default so a real deployment can never fill its dashboard
+# with synthetic posts. Tests are exactly the case that wants it.
+os.environ["ENABLE_MOCK_PROVIDER"] = "true"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 

@@ -21,11 +21,50 @@ function SettingsContent() {
   useEffect(() => {
     const status = searchParams.get("instagram");
     const detail = searchParams.get("message");
-    if (status === "connected") {
-      setMessage(detail || "Instagram account connected.");
-    } else if (status === "error") {
+    if (status === "error") {
       setMessage(detail || "Could not connect that Instagram account.");
+      return;
     }
+    if (status !== "connected") return;
+
+    const accountId = searchParams.get("account_id");
+    if (!accountId) {
+      setMessage(detail || "Instagram account connected.");
+      return;
+    }
+
+    // Pull the post history immediately. Connecting is only ever a means
+    // to this, and stopping at a connected-but-empty account would leave
+    // the dashboard blank with no indication of what to do next.
+    let cancelled = false;
+    setBusy(true);
+    setMessage(`${detail || "Connected."} Importing your posts…`);
+    api
+      .post<{ imported_count: number; skipped_count: number }>(`/accounts/${accountId}/import`)
+      .then((result) => {
+        if (cancelled) return;
+        setMessage(
+          `${detail || "Connected."} Imported ${result.imported_count} posts — ` +
+            `your dashboard is ready.`
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setMessage(
+          `${detail || "Connected."} Could not import posts yet: ` +
+            `${err instanceof ApiError ? err.message : "unknown error"}. ` +
+            `Use "Import history" below to retry.`
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setBusy(false);
+        loadAccounts();
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams]);
 
   async function loadAccounts() {
@@ -51,20 +90,6 @@ function SettingsContent() {
       refreshUser(updated);
     } catch (err) {
       setMessage(err instanceof ApiError ? err.message : "Failed to update setting.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function connectAccount() {
-    setBusy(true);
-    setMessage(null);
-    try {
-      await api.post<InstagramAccount>("/accounts/connect", { provider: "mock" });
-      await loadAccounts();
-      setMessage("Mock Instagram account connected.");
-    } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Failed to connect account.");
     } finally {
       setBusy(false);
     }
@@ -98,6 +123,28 @@ function SettingsContent() {
       await loadAccounts();
     } catch (err) {
       setMessage(err instanceof ApiError ? err.message : "Failed to disconnect account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAccount(account: InstagramAccount) {
+    // Deleting takes the imported post history with it, so make the user
+    // say so explicitly -- there is no undo short of re-importing.
+    const confirmed = window.confirm(
+      `Remove @${account.username} and delete every post imported from it? ` +
+        `This cannot be undone. You can reconnect the account afterwards.`
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.delete(`/accounts/${account.id}`);
+      await loadAccounts();
+      setMessage(`Removed @${account.username} and its imported posts.`);
+    } catch (err) {
+      setMessage(err instanceof ApiError ? err.message : "Failed to remove account.");
     } finally {
       setBusy(false);
     }
@@ -157,26 +204,14 @@ function SettingsContent() {
       <Card>
         <CardLabel>Instagram connection</CardLabel>
         <div className="mt-4 flex flex-col gap-4">
-          {accounts.length === 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-stone-500">No account connected.</p>
-              <div className="flex gap-2">
-                <Button onClick={connectRealAccount} disabled={busy}>
-                  Connect Instagram
-                </Button>
-                <Button variant="secondary" onClick={connectAccount} disabled={busy}>
-                  Use demo data
-                </Button>
-              </div>
-            </div>
-          )}
           {accounts.map((account) => (
-            <div key={account.id} className="flex items-center justify-between border-t border-stone-100 pt-4 first:border-none first:pt-0">
+            <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-4 first:border-none first:pt-0">
               <div>
                 <p className="text-sm font-medium text-stone-800">
                   @{account.username}{" "}
                   <span className="ml-1 text-xs text-stone-400">
-                    {account.is_active ? "Connected" : "Disconnected"} · {account.provider}
+                    {account.is_active ? "Connected" : "Disconnected"}
+                    {account.provider !== "meta" && ` · ${account.provider}`}
                   </span>
                 </p>
                 <p className="mt-0.5 text-xs text-stone-500">
@@ -193,25 +228,41 @@ function SettingsContent() {
                     Disconnect
                   </Button>
                 )}
+                <Button variant="ghost" onClick={() => removeAccount(account)} disabled={busy}>
+                  Remove
+                </Button>
               </div>
             </div>
           ))}
+
+          {/* Always reachable, not just when nothing is connected: this is
+              the only route to the real Instagram flow, and it is also how
+              you replace an account that was connected by mistake. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-4 first:border-none first:pt-0">
+            <p className="text-sm text-stone-500">
+              {accounts.length === 0
+                ? "No account connected."
+                : "Connect another Instagram account."}
+            </p>
+            <Button onClick={connectRealAccount} disabled={busy}>
+              Connect Instagram
+            </Button>
+          </div>
         </div>
       </Card>
 
       <Card>
-        <CardLabel>About the two connection options</CardLabel>
+        <CardLabel>About the Instagram connection</CardLabel>
         <p className="mt-2 text-sm text-stone-500">
-          <strong className="font-medium text-stone-700">Connect Instagram</strong> uses the official
-          Meta Graph API to import your real posts and insights. It requires an Instagram
-          professional (Creator or Business) account, and the backend must be configured with Meta
-          app credentials. Instagram is never scraped — only documented API endpoints are used.
+          Aperture reads your posts and their insights through the official Instagram API. Instagram
+          is never scraped, nothing is ever posted or changed on your behalf, and the connection can
+          be revoked at any time from Instagram under Settings → Apps and websites.
         </p>
         <p className="mt-2 text-sm text-stone-500">
-          <strong className="font-medium text-stone-700">Use demo data</strong> connects a mock
-          provider that generates realistic synthetic post history locally. Nothing leaves your
-          machine and no credentials are needed — useful for exploring the app before wiring up a
-          real account.
+          Connecting requires an Instagram professional (Creator or Business) account. Your recent
+          posts are imported automatically once you connect; use{" "}
+          <strong className="font-medium text-stone-700">Import history</strong> afterwards to pick
+          up newer ones.
         </p>
       </Card>
     </div>
