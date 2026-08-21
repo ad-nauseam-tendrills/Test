@@ -103,14 +103,26 @@ def test_image_readiness_penalizes_clipping():
 
 
 def test_timing_opportunity_insufficient_data():
+    """With no history AND no follower geography, there is nothing to say."""
     section = score_timing_opportunity(12, 2, [], [], total_posts=2)
     assert section.score == 50
     assert "Not enough" in section.explanation
 
 
 def test_historical_similarity_insufficient_data():
+    """
+    Too little history to compare against the account's own posts, so the
+    score falls back to the crop -- which is measured from the image and
+    needs no history. It must say so rather than implying otherwise.
+    """
     section = score_historical_similarity(_base_metrics(), [], total_posts=1)
-    assert section.score == 50
+    assert "not enough to compare" in section.explanation
+    assert "Import at least" in section.explanation
+    # Crop still discriminates: a far-off ratio scores below a feed-shaped one.
+    wide = score_historical_similarity(
+        _base_metrics(aspect_ratio=2.4), [], total_posts=1
+    )
+    assert wide.score < section.score
 
 
 def test_overall_readiness_is_weighted_average():

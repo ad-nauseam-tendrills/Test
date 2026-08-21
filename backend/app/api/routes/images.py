@@ -195,6 +195,7 @@ def analyze_uploaded_image(
             by_day_of_week=dashboard["by_day_of_week"],
             by_hour_of_day=dashboard["by_hour_of_day"],
             total_posts=dashboard["overview"]["total_posts"],
+            audience_countries=account.audience_countries if account else None,
         )
     else:
         timing = score_timing_opportunity(now.hour, now.weekday(), [], [], 0)

@@ -6,6 +6,7 @@ from app.db.session import get_db
 from app.models.instagram_account import InstagramAccount
 from app.models.user import User
 from app.schemas.analytics import (
+    BenchmarkReport,
     AudienceReport,
     CaptionFeatureReport,
     DashboardResponse,
@@ -68,6 +69,7 @@ def get_dashboard(db: Session = Depends(get_db), current_user: User = Depends(ge
         by_media_type=[MediaTypeStat(**m) for m in data["by_media_type"]],
         has_enough_data=data["has_enough_data"],
         insufficient_data_message=data["insufficient_data_message"],
+        benchmark=BenchmarkReport(**data["benchmark"]),
     )
 
 

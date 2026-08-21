@@ -32,12 +32,12 @@ backend/
     schemas/             # Pydantic request/response models
     services/
       instagram/         # InstagramProvider abstraction (Meta + dev-only mock)
-      analytics/         # engagement, normalization, timing, audience, captions
+      analytics/         # engagement, normalization, timing, audience, captions, baselines
       image_analysis/    # Pillow/OpenCV measurable-property extraction
       image_processing/  # Artwork Integrity optimization engine
       recommendations/   # rule-based recommendations + heuristic scoring
       captions/          # caption suggestions (Anthropic or OpenAI)
-    tests/                # pytest suite (182 tests)
+    tests/                # pytest suite (197 tests)
   alembic/                # migrations
   scripts/                # seed_mock_data.py, purge_mock_data.py (dev only)
 frontend/
@@ -199,9 +199,10 @@ pip install -r requirements.txt
 pytest
 ```
 
-182 tests cover image-metric extraction, normalization math, engagement
+197 tests cover image-metric extraction, normalization math, engagement
 calculations, recommendation rules, hashtag analysis, audience timezone
-weighting, caption-feature bucketing, caption generation on both model
+weighting, caption-feature bucketing, baseline shrinkage and cold-start
+scoring, caption generation on both model
 providers, both Instagram
 providers, and the full API (auth, account connect/import, dashboard,
 OAuth callback security, upload → analyze → optimize).
@@ -314,6 +315,60 @@ provider and by tests. It rejects `provider: "mock"` unless
 deployment's dashboard by accident. `INSTAGRAM_PROVIDER` only supplies its
 default provider name; accounts connected through OAuth are stored as
 `meta` and always use the real API.
+
+## Population baselines (cold start)
+
+Everything else in this product reasons from the account's own history,
+which is honest but useless on day one: a new account has nothing to
+compare against, so every score fell back to a flat 50 and the dashboard
+said "not enough data" indefinitely.
+
+`app/services/analytics/baselines.py` supplies a published population
+median and blends it with whatever history exists, using ordinary
+empirical-Bayes shrinkage:
+
+```
+blended = (n * your_average + k * baseline) / (n + k)      k = 5 posts
+```
+
+With no posts you see the population figure, labelled as such. At 5 posts
+the split is 50/50; by 30 posts your own data carries ~86%. The baseline
+never disappears entirely, which also keeps a single fluke post from
+reading as a trend.
+
+**The unit trap.** The published benchmarks are engagement **per
+follower**. The rate shown everywhere else in this app is engagement
+**per reach**, because reach is the better denominator for judging a post
+against the people who actually saw it. Reach is normally far below
+follower count, so the same post scores several times higher per-reach.
+Blending the two would silently corrupt every comparison, so the baseline
+code works exclusively in follower-normalized space, the API returns the
+two under separate names (`benchmark.own_rate` vs
+`overview.avg_engagement_rate`), and the UI states which basis it is
+showing.
+
+**Sources.** Values are from the Socialinsider 2026 Instagram benchmarks,
+retrieved August 2026: 0.48% overall per follower, and by format
+carousels 0.55%, Reels/video 0.48%, single images 0.33%. Socialinsider
+was chosen over [Rival IQ](https://www.rivaliq.com/blog/social-media-industry-benchmark-report/)
+(2026 median 0.30%) because Rival IQ samples brand accounts while this
+product is for individual artists. **The two disagree by roughly 60%
+measuring the same thing**, which is the clearest possible argument for
+treating these as orientation rather than a target. They drift yearly —
+re-check them rather than assuming they stay accurate.
+
+**Cold-start scores.** Two scores also degrade rather than flatlining:
+
+- *Historical similarity* falls back to the image's crop alone, which is
+  measured from the file and needs no history at all.
+- *Timing opportunity* falls back to follower geography — what fraction
+  of your audience is in its waking hours right now, from Meta's
+  `follower_demographics`. That is real data about your specific
+  audience, not a borrowed average. It stays neutral when Meta withholds
+  the breakdown (below ~100 followers).
+
+None of this becomes a prediction. The panel states its source, its
+sample basis, and that it is not a target.
 
 ## Artwork Integrity mode
 

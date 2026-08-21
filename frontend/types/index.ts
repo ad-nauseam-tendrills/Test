@@ -78,6 +78,39 @@ export interface MediaTypeStat {
   avg_reach: number | null;
 }
 
+export interface MediaTypeBenchmark {
+  media_type: string;
+  post_count: number;
+  own_rate: number | null;
+  baseline_rate: number;
+  blended_rate: number;
+  vs_baseline: number | null;
+  confidence: string;
+}
+
+/**
+ * This account against published population medians.
+ *
+ * `metric_basis` is always "followers". These rates are engagement per
+ * FOLLOWER, unlike `OverviewStats.avg_engagement_rate`, which is per
+ * REACH. They are different numbers for the same post and must never be
+ * displayed as though they were the same metric.
+ */
+export interface BenchmarkReport {
+  source: string;
+  retrieved: string;
+  caveat: string;
+  metric_basis: string;
+  own_rate: number | null;
+  baseline_rate: number;
+  blended_rate: number;
+  vs_baseline: number | null;
+  post_count: number;
+  confidence: string;
+  explanation: string;
+  by_media_type: MediaTypeBenchmark[];
+}
+
 export interface DashboardResponse {
   overview: OverviewStats;
   best_posts: InstagramPost[];
@@ -87,6 +120,7 @@ export interface DashboardResponse {
   by_media_type: MediaTypeStat[];
   has_enough_data: boolean;
   insufficient_data_message: string | null;
+  benchmark: BenchmarkReport | null;
 }
 
 export interface UploadedImage {

@@ -48,6 +48,39 @@ class HashtagReport(BaseModel):
     caveat: str
 
 
+class MediaTypeBenchmark(BaseModel):
+    media_type: str
+    post_count: int
+    own_rate: float | None
+    baseline_rate: float
+    blended_rate: float
+    vs_baseline: float | None
+    confidence: str
+
+
+class BenchmarkReport(BaseModel):
+    """
+    This account against published population medians.
+
+    metric_basis is always "followers": the published benchmarks are
+    computed per follower, unlike the reach-normalized avg_engagement_rate
+    in OverviewStats. The two must never be shown as the same number.
+    """
+
+    source: str
+    retrieved: str
+    caveat: str
+    metric_basis: str
+    own_rate: float | None
+    baseline_rate: float
+    blended_rate: float
+    vs_baseline: float | None
+    post_count: int
+    confidence: str
+    explanation: str
+    by_media_type: list[MediaTypeBenchmark]
+
+
 class DashboardResponse(BaseModel):
     overview: OverviewStats
     best_posts: list[InstagramPostRead]
@@ -57,6 +90,7 @@ class DashboardResponse(BaseModel):
     by_media_type: list[MediaTypeStat]
     has_enough_data: bool
     insufficient_data_message: str | None = None
+    benchmark: BenchmarkReport | None = None
 
 
 class HourAudienceRead(BaseModel):

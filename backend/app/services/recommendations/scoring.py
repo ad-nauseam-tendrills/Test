@@ -12,6 +12,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.services.analytics.audience import awake_fraction_for_hour
+from app.services.analytics.baselines import (
+    BASELINE_ENGAGEMENT_BY_FOLLOWERS,
+    BENCHMARK_SOURCE,
+    baseline_for_media_type,
+)
 from app.services.image_analysis.metrics import ImageMetrics
 
 MIN_POSTS_FOR_TIMING = 10
@@ -78,14 +84,38 @@ def score_timing_opportunity(
     by_day_of_week: list[dict],
     by_hour_of_day: list[dict],
     total_posts: int,
+    audience_countries: dict[str, int] | None = None,
 ) -> ScoreSection:
     if total_posts < MIN_POSTS_FOR_TIMING:
+        # No usable posting history. Rather than a flat 50, fall back to
+        # the one timing signal that needs no history at all: where this
+        # account's followers actually are, and whether they are awake
+        # right now. That comes from Meta's follower_demographics -- real
+        # data about this specific audience, not a borrowed average.
+        awake = awake_fraction_for_hour(current_hour, audience_countries or {})
+        if awake is None:
+            return ScoreSection(
+                score=50,
+                label="Not enough data",
+                explanation=(
+                    "Not enough historical data yet to evaluate timing, and no follower-country "
+                    "breakdown is available to fall back on (Meta withholds it below about 100 "
+                    "followers). Default neutral score shown. Import at least "
+                    f"{MIN_POSTS_FOR_TIMING} posts to score timing against your own history."
+                ),
+            )
+
+        final = _clamp(awake * 100)
         return ScoreSection(
-            score=50,
-            label="Not enough data",
+            score=final,
+            label=_label_for(final),
             explanation=(
-                "Not enough historical data yet to evaluate timing. Default neutral score shown. "
-                f"Import at least {MIN_POSTS_FOR_TIMING} historical posts to unlock this score."
+                f"Based on your audience's location, not your posting history -- "
+                f"{total_posts} imported post{'s' if total_posts != 1 else ''} is too few for "
+                f"that. About {final}% of your followers whose country is known are in their "
+                f"waking hours right now. Being awake is not the same as being receptive, so "
+                f"treat this as a floor rather than a recommendation. Import at least "
+                f"{MIN_POSTS_FOR_TIMING} posts to score timing against your own results."
             ),
         )
 
@@ -121,19 +151,9 @@ def score_historical_similarity(
     total_posts: int,
     assumed_media_type: str = "IMAGE",
 ) -> ScoreSection:
-    if total_posts < MIN_POSTS_FOR_SIMILARITY:
-        return ScoreSection(
-            score=50,
-            label="Not enough data",
-            explanation=(
-                "Not enough historical data yet to compare this image against past posts. "
-                f"Import at least {MIN_POSTS_FOR_SIMILARITY} historical posts to unlock this score."
-            ),
-        )
-
     # Component 1: how closely the crop matches Instagram's tallest
     # standard feed ratio (a strong, format-level signal we can measure
-    # directly on the new image).
+    # directly on the new image, with no history required).
     ratio_delta = abs(metrics.aspect_ratio - (4 / 5))
     format_fit = max(0.0, 100 - ratio_delta * 250)
 
@@ -150,6 +170,29 @@ def score_historical_similarity(
         media_type_fit = max(0.0, min(100.0, media_type_fit))
     else:
         media_type_fit = 50.0
+
+    if total_posts < MIN_POSTS_FOR_SIMILARITY:
+        # Not enough history to say anything about this account's own
+        # patterns -- but the crop is measured from the image itself and
+        # is just as valid on day one. Score that alone rather than
+        # discarding it for a flat 50, and say plainly that is all this is.
+        baseline = baseline_for_media_type(assumed_media_type)
+        vs_overall = baseline / BASELINE_ENGAGEMENT_BY_FOLLOWERS
+        final = _clamp(format_fit)
+        return ScoreSection(
+            score=final,
+            label=_label_for(final),
+            explanation=(
+                f"Based on this image's crop alone -- {total_posts} imported post"
+                f"{'s' if total_posts != 1 else ''} is not enough to compare against this "
+                f"account's own history. Measures the crop against Instagram's tallest "
+                f"standard feed format (4:5). For orientation, "
+                f"'{assumed_media_type.title()}' posts run about {vs_overall:.1f}x the "
+                f"overall median across accounts in {BENCHMARK_SOURCE} -- a population "
+                f"figure, not a statement about your work. Import at least "
+                f"{MIN_POSTS_FOR_SIMILARITY} posts to compare against your own history."
+            ),
+        )
 
     combined = format_fit * 0.5 + media_type_fit * 0.5
     final = _clamp(combined)

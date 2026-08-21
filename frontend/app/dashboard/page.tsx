@@ -10,6 +10,7 @@ import { PostCard } from "@/components/dashboard/PostCard";
 import { HashtagPanel } from "@/components/dashboard/HashtagPanel";
 import { AudiencePanel } from "@/components/dashboard/AudiencePanel";
 import { CaptionFeaturePanel } from "@/components/dashboard/CaptionFeaturePanel";
+import { BenchmarkPanel } from "@/components/dashboard/BenchmarkPanel";
 import { api, ApiError } from "@/lib/api";
 import { DashboardResponse, InstagramAccount } from "@/types";
 import { formatHour, formatNumber, formatPercent, mediaTypeLabel } from "@/lib/utils";
@@ -127,6 +128,8 @@ function DashboardContent() {
         <Stat label="Avg. engagement" value={formatPercent(overview?.avg_engagement_rate)} />
         <Stat label="Avg. saves" value={formatNumber(overview?.avg_saves)} />
       </div>
+
+      <BenchmarkPanel report={dashboard?.benchmark ?? null} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

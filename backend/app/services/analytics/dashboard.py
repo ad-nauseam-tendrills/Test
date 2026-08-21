@@ -6,6 +6,7 @@ from statistics import mean
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.instagram_post import InstagramPost
+from app.services.analytics.benchmark import build_benchmark_report
 from app.services.analytics.engagement import PostEngagementInput, engagement_rate
 from app.services.analytics.normalization import (
     INSUFFICIENT_DATA_MESSAGE,
@@ -114,4 +115,7 @@ def build_dashboard(db: Session, account_id) -> dict:
         "has_enough_data": enough,
         "insufficient_data_message": None if enough else INSUFFICIENT_DATA_MESSAGE,
         "all_engagement_rates": rates,
+        # Population baselines, blended with whatever history exists, so a
+        # new account has something to orient against on day one.
+        "benchmark": build_benchmark_report(posts),
     }
